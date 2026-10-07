@@ -1,0 +1,11 @@
+{
+    "id": "voxtype",
+    "name": "Voxtype Diktat",
+    "description": "Zeigt den Diktat-Status (voxtype) in der Bar; Klick schaltet die Aufnahme um, Rechtsklick oeffnet die Konfiguration",
+    "version": "1.0.0",
+    "author": "bewr",
+    "type": "widget",
+    "capabilities": ["dictation-status"],
+    "component": "./VoxtypeWidget.qml",
+    "icon": "mic"
+}
