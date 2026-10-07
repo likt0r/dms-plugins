@@ -1,0 +1,14 @@
+{
+    "id": "warthemahl",
+    "name": "WartheMahl",
+    "description": "Die Wochenspeisekarte von warthemahl.de in der Bar: Klick aufs Besteck-Icon zeigt alle Gerichte der Woche, der heutige Tag hervorgehoben",
+    "version": "2.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["lunch-menu"],
+    "component": "./WarthemahlWidget.qml",
+    "settings": "./Settings.qml",
+    "icon": "restaurant",
+    "dependencies": ["python3"],
+    "permissions": ["settings_read", "settings_write"]
+}

@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Fetch and parse the WartheMahl weekly menu into JSON for the DMS bar plugin.
+
+The site is a WordPress page whose weekly menu is a run of <p> blocks, one per
+weekday: a bolded date header, then one dish per <br>-separated line. Line 1 is
+the meat/fish dish, line 2 the vegetarian one -- that ordering is the site's
+own convention and the only signal available, so it is what we key on.
+
+Always exits 0 and always prints one JSON object, so the QML side has a single
+parse path. Network trouble surfaces as `error` plus, when a cache exists, the
+stale entries and `stale: true` -- a slightly old menu beats an empty panel.
+"""
+
+import json
+import os
+import re
+import sys
+import time
+import html
+import urllib.request
+import urllib.error
+
+URL = "https://warthemahl.de/speisekarte/"
+UA = "Mozilla/5.0 (X11; Linux x86_64) dms-warthemahl/2.0"
+TIMEOUT = 12
+
+WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+MONTHS = {
+    "januar": 1, "februar": 2, "märz": 3, "maerz": 3, "april": 4, "mai": 5, "juni": 6,
+    "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11, "dezember": 12,
+}
+MONTHS_SHORT = {
+    1: "Jan", 2: "Feb", 3: "Mär", 4: "Apr", 5: "Mai", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Dez",
+}
+
+
+def cache_path():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(base, "dms", "warthemahl-menu.json")
+
+
+def read_cache():
+    try:
+        with open(cache_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_cache(data):
+    path = cache_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def strip_tags(fragment):
+    """HTML fragment -> plain text, with <br> becoming newlines.
+
+    <sup> annotations ("(Hähnchen)", the "(*)" footnote) are inline notes that
+    belong in the dish text, so their tags drop but their content stays.
+    """
+    text = re.sub(r"(?is)<br\s*/?>", "\n", fragment)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = text.replace(" ", " ")
+    lines = []
+    for raw in text.split("\n"):
+        line = re.sub(r"[ \t]+", " ", raw).strip()
+        if line:
+            lines.append(line)
+    return lines
+
+
+def parse_header(line):
+    """'Montag, 24. August 2026' -> (weekday, day, month, year). Year may be None."""
+    weekday = None
+    for name in WEEKDAYS:
+        if re.match(r"^" + name + r"\b", line, re.IGNORECASE):
+            weekday = name
+            break
+    if weekday is None:
+        return None
+    m = re.search(r"(\d{1,2})\s*\.\s*([A-Za-zÄÖÜäöüß]+)\s*(\d{4})?", line)
+    if not m:
+        return (weekday, None, None, None)
+    day = int(m.group(1))
+    month = MONTHS.get(m.group(2).strip().lower())
+    year = int(m.group(3)) if m.group(3) else None
+    return (weekday, day, month, year)
+
+
+def parse(page_html):
+    body = page_html
+    m = re.search(r'(?is)<div class="entry-content">(.*?)<!-- \.entry-content -->', page_html)
+    if m:
+        body = m.group(1)
+
+    days = []
+    for block in re.findall(r"(?is)<p[^>]*>(.*?)</p>", body):
+        lines = strip_tags(block)
+        if not lines:
+            continue
+        header = parse_header(lines[0])
+        if header is None:
+            continue
+        weekday, day, month, year = header
+        dishes = [d for d in lines[1:] if d and d != "*"]
+        if not dishes:
+            continue
+        entry = {"weekday": weekday, "dishes": dishes}
+        if day and month:
+            entry["day"] = day
+            entry["month"] = month
+            if year:
+                entry["year"] = year
+                entry["date"] = "%04d-%02d-%02d" % (year, month, day)
+            entry["dateLabel"] = "%d. %s" % (day, MONTHS_SHORT[month])
+        days.append(entry)
+
+    pdf = ""
+    m = re.search(r'href="([^"]+\.pdf)"', body, re.IGNORECASE)
+    if m:
+        pdf = html.unescape(m.group(1))
+
+    return {"days": days, "pdfUrl": pdf, "weekLabel": week_label(days)}
+
+
+def week_label(days):
+    dated = [d for d in days if d.get("day") and d.get("month")]
+    if not dated:
+        return ""
+    first, last = dated[0], dated[-1]
+    year = first.get("year") or last.get("year")
+    tail = "%d. %s" % (last["day"], MONTHS_SHORT[last["month"]])
+    if year:
+        tail += " %d" % year
+    if first["month"] == last["month"]:
+        return "%d.–%s" % (first["day"], tail)
+    return "%d. %s – %s" % (first["day"], MONTHS_SHORT[first["month"]], tail)
+
+
+def fetch():
+    req = urllib.request.Request(URL, headers={"User-Agent": UA, "Accept-Language": "de"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return resp.read().decode(charset, errors="replace")
+
+
+def emit(payload):
+    json.dump(payload, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def main(argv):
+    max_age = 0
+    if "--max-age" in argv:
+        try:
+            max_age = int(argv[argv.index("--max-age") + 1])
+        except (IndexError, ValueError):
+            max_age = 0
+
+    cached = read_cache()
+    now = int(time.time())
+
+    if max_age > 0 and cached and now - int(cached.get("fetchedAt", 0)) < max_age:
+        cached["stale"] = False
+        return emit(cached)
+
+    try:
+        parsed = parse(fetch())
+    except Exception as exc:  # network, TLS, decoding -- all degrade the same way
+        message = "%s: %s" % (type(exc).__name__, exc) if str(exc) else type(exc).__name__
+        if cached:
+            cached["stale"] = True
+            cached["error"] = message
+            return emit(cached)
+        return emit({"days": [], "pdfUrl": "", "weekLabel": "", "fetchedAt": 0,
+                     "stale": False, "error": message, "sourceUrl": URL})
+
+    if not parsed["days"]:
+        message = "Keine Gerichte auf der Seite gefunden"
+        if cached and cached.get("days"):
+            cached["stale"] = True
+            cached["error"] = message
+            return emit(cached)
+        parsed.update({"fetchedAt": now, "stale": False, "error": message, "sourceUrl": URL})
+        return emit(parsed)
+
+    parsed.update({"fetchedAt": now, "stale": False, "error": "", "sourceUrl": URL})
+    write_cache(parsed)
+    return emit(parsed)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
