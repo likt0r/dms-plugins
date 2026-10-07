@@ -27,8 +27,10 @@ PluginComponent {
         : dictState === "idle" ? Theme.surfaceText
         : Theme.surfaceVariantText
 
-    // Pill nur zeigen, wenn der Daemon laeuft.
-    visibilityCommand: "pgrep -x voxtype"
+    // Pill nur zeigen, wenn der Daemon laeuft. Nicht pgrep -x voxtype:
+    // seit dem offiziellen RPM heisst der Prozess nach Variante, z.B.
+    // voxtype-avx512 oder voxtype-vulkan.
+    visibilityCommand: "systemctl --user --quiet is-active voxtype.service"
     visibilityInterval: 10
 
     pillClickAction: () => {
