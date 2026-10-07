@@ -31,3 +31,15 @@ platzieren.
 ## Geplant (Portierung von Omarchy, siehe Umstiegsplan Phase 3)
 
 `warthemahl` (Pilot), `wake`, `vpn`, `calendar`, `scribe`.
+
+## Themes
+
+Unter `themes/` liegen DMS-Farbthemes (ein Verzeichnis pro Theme mit
+`theme.json` + Preview-SVGs). `bin/apply` verlinkt sie nach
+`~/.config/DankMaterialShell/themes/`; aktiviert wird über die
+DMS-Einstellungen (Theme → Colors) oder per settings.json
+(`currentThemeName: "custom"`, `customThemeFile: <pfad>/theme.json`).
+
+| Theme | Beschreibung |
+|---|---|
+| [`themes/faktenforum/`](themes/faktenforum/) | Faktenforum-Branding (Indigo/Zinc aus dem Nuxt-UI-Frontend, Korall als Zweitakzent), dark + light. Dazu gehören die Fonts Source Sans 3 / Source Code Pro (`fontFamily`/`monoFontFamily`, Installation über das dotfiles-Repo). |
