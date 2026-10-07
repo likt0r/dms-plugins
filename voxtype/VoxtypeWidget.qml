@@ -79,7 +79,7 @@ PluginComponent {
                 anchors.centerIn: parent
                 name: root.stateIcon
                 color: root.stateColor
-                font.pixelSize: Theme.iconSize
+                size: Theme.iconSize
 
                 SequentialAnimation on opacity {
                     running: root.dictState === "recording" && root.surfaceLive
@@ -105,7 +105,7 @@ PluginComponent {
                 anchors.centerIn: parent
                 name: root.stateIcon
                 color: root.stateColor
-                font.pixelSize: Theme.iconSizeSmall
+                size: Theme.iconSizeSmall
 
                 SequentialAnimation on opacity {
                     running: root.dictState === "recording" && root.surfaceLive
