@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""OpenAI-compatible adapter for Scribe. See backends/README.md.
+
+Speaks the /v1/chat/completions shape, which is what OpenAI, ollama,
+llama.cpp's server, LM Studio, vLLM, OpenRouter, Groq and most local runners
+expose. Point it somewhere with the panel's Endpoint setting, or with
+SCRIBE_OPENAI_BASE_URL when driving the CLI directly:
+
+    ollama, this machine   http://localhost:11434/v1
+    ollama, another box    http://gpu-box.local:11434/v1
+    llama.cpp              http://localhost:8080/v1
+    OpenAI                 (the default; needs a key)
+
+Only api.openai.com is assumed to need a key up front. A self-hosted server
+usually has no auth at all, and hosted providers that do want one answer 401,
+which is reported with their own message.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+EXIT_OK = 0
+EXIT_CONFIG = 2
+EXIT_UPSTREAM = 3
+
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+KEYRING_ARGS = ["secret-tool", "lookup", "service", "openai", "account", "api-key"]
+
+KEY_HELP = (
+    "No API key for %s. Either export SCRIBE_OPENAI_API_KEY (or OPENAI_API_KEY), or store one "
+    "with:  secret-tool store --label='OpenAI API key' service openai account api-key"
+)
+
+# Local reasoning models (qwen3, deepseek-r1, ...) narrate before answering
+# and the OpenAI-compatible shape has nowhere to put that, so it arrives
+# inside the content. Stripping a *complete* leading block is unambiguous;
+# anything else is left alone.
+THINK_RE = re.compile(r"^\s*<(think|thinking|reasoning)>.*?</\1>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def fail(code, message):
+    print(message, file=sys.stderr)
+    sys.exit(code)
+
+
+def base_url(options=None):
+    """Panel setting first, then the environment, then OpenAI.
+
+    The setting wins because the shell process that spawns Scribe inherits
+    its environment from the login session: a freshly exported base URL
+    would not reach it until the next login.
+    """
+    configured = (options or {}).get("baseUrl")
+    return (str(configured or "").strip()
+            or os.environ.get("SCRIBE_OPENAI_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or DEFAULT_BASE_URL).rstrip("/")
+
+
+def is_local(url):
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".local")
+
+
+def needs_key(url):
+    """Only OpenAI itself is assumed to require a key up front.
+
+    A self-hosted server -- ollama on this machine or on the box in the next
+    room -- usually has no auth at all, and demanding a key before trying
+    would make the common case impossible. Hosted providers that do want one
+    answer 401, which is reported with their own message.
+    """
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host == "api.openai.com"
+
+
+def strip_thinking(text):
+    return THINK_RE.sub("", text, count=1)
+
+
+def resolve_key():
+    for name in ("SCRIBE_OPENAI_API_KEY", "OPENAI_API_KEY"):
+        key = (os.environ.get(name) or "").strip()
+        if key:
+            return key
+    try:
+        completed = subprocess.run(KEYRING_ARGS, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def endpoint_from_argv(argv):
+    if "--endpoint" in argv:
+        index = argv.index("--endpoint")
+        if index + 1 < len(argv):
+            return argv[index + 1]
+    return ""
+
+
+def check(argv):
+    url = base_url({"baseUrl": endpoint_from_argv(argv)})
+    key = resolve_key()
+    if needs_key(url) and not key:
+        fail(EXIT_CONFIG, KEY_HELP % url)
+
+    # A remote endpoint that is not listening is the failure this catches --
+    # a typo in the host, or the box being asleep. Cheap: /models, not a
+    # completion.
+    try:
+        request = urllib.request.Request(url + "/models", method="GET")
+        if key:
+            request.add_header("authorization", "Bearer %s" % key)
+        with urllib.request.urlopen(request, timeout=10) as response:
+            names = [m.get("id") for m in (json.loads(response.read().decode("utf-8")).get("data") or [])]
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            fail(EXIT_CONFIG, "%s rejected the credentials (%d)." % (url, exc.code))
+        names = None
+    except Exception as exc:
+        fail(EXIT_CONFIG, "Could not reach %s: %s" % (url, exc))
+
+    summary = "endpoint %s" % url
+    if key:
+        summary += " (key …%s)" % key[-4:]
+    if names:
+        summary += " — %d models: %s" % (len(names), ", ".join(sorted(filter(None, names))[:6]))
+    print(summary)
+    return EXIT_OK
+
+
+def main():
+    if "--check" in sys.argv[1:]:
+        return check(sys.argv[1:])
+
+    try:
+        payload = json.load(sys.stdin)
+    except ValueError as exc:
+        fail(EXIT_UPSTREAM, "adapter received invalid JSON: %s" % exc)
+
+    url = base_url(payload.get("options"))
+    key = resolve_key()
+    if needs_key(url) and not key:
+        fail(EXIT_CONFIG, KEY_HELP % url)
+
+    body = {
+        "model": payload.get("model") or "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": payload["system"]},
+            {"role": "user", "content": "<text>\n%s\n</text>" % payload["text"]},
+        ],
+        "stream": False,
+    }
+
+    # Only sent when asked for. A reasoning model told "none" skips its
+    # deliberation entirely -- measured against qwen3.5:27b on ollama, that is
+    # 1.4s instead of 8.8s per correction with identical results, because
+    # proofreading has nothing to deliberate about. But a non-reasoning model
+    # may reject the field outright, so it is never sent unbidden.
+    effort = (payload.get("options") or {}).get("effort")
+    if effort:
+        body["reasoning_effort"] = effort
+
+    headers = {"content-type": "application/json"}
+    if key:
+        headers["authorization"] = "Bearer %s" % key
+
+    request = urllib.request.Request(
+        url + "/chat/completions",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    timeout = payload.get("timeoutSec") or 30
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            answer = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            problem = json.loads(exc.read().decode("utf-8"))
+            detail = (problem.get("error") or {}).get("message", "")
+        except Exception:
+            pass
+        code = EXIT_CONFIG if exc.code in (401, 403) else EXIT_UPSTREAM
+        fail(code, "%s returned %d%s" % (url, exc.code, (": " + detail) if detail else ""))
+    except urllib.error.URLError as exc:
+        fail(EXIT_UPSTREAM, "Could not reach %s: %s" % (url, exc.reason))
+    except (ValueError, TimeoutError) as exc:
+        fail(EXIT_UPSTREAM, "Bad response from %s: %s" % (url, exc))
+
+    choices = answer.get("choices") or []
+    if not choices:
+        fail(EXIT_UPSTREAM, "%s returned no choices." % url)
+
+    choice = choices[0]
+    if choice.get("finish_reason") == "length":
+        fail(EXIT_UPSTREAM, "The correction was cut off; the selection is too long.")
+
+    text = strip_thinking(((choice.get("message") or {}).get("content")) or "")
+    if not text.strip():
+        fail(EXIT_UPSTREAM, "%s returned no text." % url)
+
+    usage = answer.get("usage") or {}
+    result = {"text": text, "model": answer.get("model") or body["model"]}
+    if usage:
+        result["usage"] = {
+            "input_tokens": usage.get("prompt_tokens"),
+            "output_tokens": usage.get("completion_tokens"),
+        }
+
+    json.dump(result, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

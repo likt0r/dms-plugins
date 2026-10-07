@@ -1,0 +1,608 @@
+#!/usr/bin/env python3
+"""Tests for the `scribe` CLI, driven through stub backends.
+
+Every test runs against a throwaway XDG_CONFIG_HOME / XDG_STATE_HOME, so the
+real profiles and the real history are never touched and the suite is safe to
+run on the machine the plugin is installed on. No test reaches the network:
+the backends here are three-line scripts.
+
+Run: python3 -B tests/cli-test.py
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+SCRIBE = os.path.join(PLUGIN_DIR, "scribe")
+
+EXIT_OK = 0
+EXIT_USAGE = 1
+EXIT_CONFIG = 2
+EXIT_UPSTREAM = 3
+EXIT_NO_SELECTION = 4
+EXIT_TIMEOUT = 5
+
+# Backends written as source so a test can name the behaviour it needs.
+STUBS = {
+    # Echoes the text back with a marker, so a test can tell a real answer
+    # from a passthrough.
+    "echo": """#!/usr/bin/env python3
+import json, sys
+if "--check" in sys.argv[1:]:
+    print("echo needs nothing"); sys.exit(0)
+p = json.load(sys.stdin)
+json.dump({"text": p["text"].replace("teh", "the"), "model": "echo-1",
+           "usage": {"input_tokens": 3, "output_tokens": 4}}, sys.stdout)
+""",
+    # Answers with the system prompt it was given, so a test can assert which
+    # profile actually reached the backend.
+    "reflect": """#!/usr/bin/env python3
+import json, sys
+p = json.load(sys.stdin)
+json.dump({"text": json.dumps({"system": p["system"], "model": p["model"],
+                               "timeoutSec": p["timeoutSec"],
+                               "options": p.get("options")})}, sys.stdout)
+""",
+    "fenced": """#!/usr/bin/env python3
+import json, sys
+json.dump({"text": "```\\ncorrected text\\n```"}, sys.stdout)
+""",
+    "trailing": """#!/usr/bin/env python3
+import json, sys
+json.dump({"text": "corrected text\\n\\n"}, sys.stdout)
+""",
+    "empty": """#!/usr/bin/env python3
+import json, sys
+json.dump({"text": "   "}, sys.stdout)
+""",
+    "noconfig": """#!/usr/bin/env python3
+import sys
+print("No API key. Run: secret-tool store ...", file=sys.stderr)
+sys.exit(2)
+""",
+    "broken": """#!/usr/bin/env python3
+import sys
+print("upstream exploded", file=sys.stderr)
+sys.exit(3)
+""",
+    "garbage": """#!/usr/bin/env python3
+print("this is not json")
+""",
+    "wrongshape": """#!/usr/bin/env python3
+import json, sys
+json.dump({"answer": "wrong key"}, sys.stdout)
+""",
+    "slow": """#!/usr/bin/env python3
+import time
+time.sleep(30)
+""",
+}
+
+
+class ScribeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="scribe-test-")
+        self.config = os.path.join(self.tmp, "config")
+        self.state = os.path.join(self.tmp, "state")
+        self.backends = os.path.join(self.config, "dms", "scribe", "backends")
+        os.makedirs(self.backends)
+        for name, source in STUBS.items():
+            path = os.path.join(self.backends, name)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+            os.chmod(path, 0o755)
+
+        self.env = dict(os.environ)
+        self.env["XDG_CONFIG_HOME"] = self.config
+        self.env["XDG_STATE_HOME"] = self.state
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_scribe(self, *args, stdin=""):
+        return subprocess.run(
+            [sys.executable, SCRIBE] + list(args),
+            input=stdin,
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=60,
+        )
+
+    def correct(self, text, *extra):
+        return self.run_scribe(
+            "run", "--stdin", "--json", "--no-copy", "--no-notify", *extra, stdin=text
+        )
+
+    # ------------------------------------------------------------- happy path
+
+    def test_corrects_and_reports(self):
+        result = self.correct("teh cat", "--backend", "echo")
+        self.assertEqual(result.returncode, EXIT_OK, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["corrected"], "the cat")
+        self.assertEqual(payload["original"], "teh cat")
+        self.assertTrue(payload["changed"])
+        self.assertEqual(payload["model"], "echo-1")
+        self.assertEqual(payload["usage"], {"input_tokens": 3, "output_tokens": 4})
+        self.assertFalse(payload["copied"])
+
+    def test_bare_output_is_just_the_text(self):
+        """Without --json the CLI is a filter, so it can sit in a pipeline."""
+        result = self.run_scribe(
+            "run", "--stdin", "--no-copy", "--no-notify", "--backend", "echo", stdin="teh cat"
+        )
+        self.assertEqual(result.returncode, EXIT_OK, result.stderr)
+        self.assertEqual(result.stdout, "the cat\n")
+
+    def test_unchanged_text_is_marked_as_such(self):
+        result = self.correct("the cat", "--backend", "echo")
+        self.assertFalse(json.loads(result.stdout)["changed"])
+
+    # ------------------------------------------------------------- profiles
+
+    def test_default_profile_reaches_the_backend(self):
+        result = self.correct("x", "--backend", "reflect")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("correct spelling, grammar and punctuation", sent["system"])
+
+    def test_named_profile_is_used(self):
+        result = self.correct("x", "--backend", "reflect", "--profile", "Formal")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("formal", sent["system"].lower())
+
+    def test_an_unknown_profile_is_an_error_not_a_substitution(self):
+        """The silence this replaces cost real time to diagnose.
+
+        A translation prompt whose name no longer matched used to resolve to
+        the spelling prompt, so the text came back unchanged and looked like
+        the model having an off day rather than a misconfiguration.
+        """
+        result = self.correct("x", "--backend", "reflect", "--profile", "Deleted")
+        self.assertEqual(result.returncode, EXIT_CONFIG, result.stdout)
+        self.assertIn("Deleted", result.stderr)
+        # The message has to name the way out, not just the problem.
+        self.assertIn("Grammar", result.stderr)
+
+    def test_the_error_names_every_available_prompt(self):
+        result = self.run_scribe("run", "--stdin", "--backend", "reflect",
+                                 "--profile", "nope", stdin="x")
+        for name in ("Grammar", "Grammar + style", "Formal"):
+            self.assertIn(name, result.stderr)
+
+    def test_profiles_are_seeded_on_first_run(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        self.assertFalse(os.path.exists(path))
+        self.run_scribe("profiles")
+        self.assertTrue(os.path.exists(path))
+        with open(path, encoding="utf-8") as handle:
+            names = [p["name"] for p in json.load(handle)["profiles"]]
+        self.assertEqual(names, ["Grammar", "Grammar + style", "Formal"])
+
+    def test_hand_edited_profiles_are_not_overwritten(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"profiles": [{"name": "Mine", "title": "Mine", "system": "do my thing"}]}, handle)
+        result = self.run_scribe("profiles")
+        self.assertEqual(result.stdout.strip(), "Mine")
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle)["profiles"][0]["system"], "do my thing")
+
+    def test_profiles_seeded_today_carry_titles(self):
+        self.run_scribe("profiles")
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        with open(path, encoding="utf-8") as handle:
+            profiles = json.load(handle)["profiles"]
+        self.assertTrue(all(p.get("title") for p in profiles), profiles)
+
+    # ------------------------------------------------------------- migration
+
+    def test_a_file_without_titles_is_migrated_once(self):
+        """The upgrade adds `title` and leaves `name` exactly as it was.
+
+        `name` is what shell.json and every history entry refer to. Rewriting
+        it would send resolve_profile down its fallback and silently correct
+        with a different prompt than the one the user chose.
+        """
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        original = {"profiles": [
+            {"name": "Grammar + style", "system": "tighten it"},
+            {"name": "Mine", "system": "do my thing"},
+        ]}
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(original, handle)
+
+        self.run_scribe("profiles")
+
+        with open(path, encoding="utf-8") as handle:
+            migrated = json.load(handle)["profiles"]
+        self.assertEqual([p["name"] for p in migrated], ["Grammar + style", "Mine"])
+        self.assertEqual([p["title"] for p in migrated], ["Grammar + style", "Mine"])
+        self.assertEqual([p["system"] for p in migrated], ["tighten it", "do my thing"])
+
+        with open(path + ".bak", encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle), original)
+
+    def test_migration_keeps_the_file_private(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"profiles": [{"name": "Mine", "system": "do my thing"}]}, handle)
+        os.chmod(path, 0o600)
+        self.run_scribe("profiles")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_migration_does_not_clobber_an_existing_backup(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".bak", "w", encoding="utf-8") as handle:
+            handle.write("the first backup")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"profiles": [{"name": "Mine", "system": "do my thing"}]}, handle)
+        self.run_scribe("profiles")
+        with open(path + ".bak", encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "the first backup")
+
+    def test_a_migrated_file_is_not_migrated_again(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        self.run_scribe("profiles")
+        self.assertFalse(os.path.exists(path + ".bak"))
+
+    # ------------------------------------------------------------ saving
+
+    def test_profiles_save_replaces_the_file(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        self.run_scribe("profiles")
+        payload = {"profiles": [{"name": "quick", "title": "Shorten", "system": "shorten the <text>"}]}
+        result = self.run_scribe("profiles", "save", stdin=json.dumps(payload))
+        self.assertEqual(result.returncode, EXIT_OK, result.stderr)
+        with open(path, encoding="utf-8") as handle:
+            saved = json.load(handle)["profiles"]
+        # Normalized on the way in, so the file holds every field the readers
+        # expect rather than whatever the caller happened to send.
+        self.assertEqual(saved, [{"name": "quick", "title": "Shorten",
+                                  "icon": "", "system": "shorten the <text>"}])
+        self.assertEqual(self.run_scribe("profiles").stdout.strip(), "quick")
+
+    def test_profiles_save_round_trips_an_icon(self):
+        payload = {"profiles": [{"name": "quick", "title": "Shorten",
+                                 "icon": "\U000F03EB", "system": "shorten it"}]}
+        result = self.run_scribe("profiles", "save", stdin=json.dumps(payload))
+        self.assertEqual(json.loads(result.stdout)["profiles"][0]["icon"], "\U000F03EB")
+        listed = json.loads(self.run_scribe("profiles", "--json").stdout)
+        self.assertEqual(listed["profiles"][0]["icon"], "\U000F03EB")
+
+    def test_the_shipped_profiles_have_icons(self):
+        """The tiles ship with something on them, not just titles."""
+        self.run_scribe("profiles")
+        listed = json.loads(self.run_scribe("profiles", "--json").stdout)
+        for profile in listed["profiles"]:
+            with self.subTest(profile=profile["name"]):
+                self.assertTrue(profile["icon"], profile)
+
+    def test_profiles_save_keeps_the_file_private(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        payload = {"profiles": [{"name": "quick", "title": "Shorten", "system": "shorten it"}]}
+        self.run_scribe("profiles", "save", stdin=json.dumps(payload))
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_profiles_save_fills_in_a_missing_title(self):
+        payload = {"profiles": [{"name": "quick", "system": "shorten it"}]}
+        result = self.run_scribe("profiles", "save", stdin=json.dumps(payload))
+        self.assertEqual(json.loads(result.stdout)["profiles"][0]["title"], "quick")
+
+    def test_profiles_save_refuses_to_empty_the_file(self):
+        """An empty save would strand the user's prompts with no way back."""
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        self.run_scribe("profiles")
+        before = open(path, encoding="utf-8").read()
+
+        for payload in ('{"profiles": []}', '{"profiles": [{"name": "", "system": ""}]}'):
+            result = self.run_scribe("profiles", "save", stdin=payload)
+            self.assertEqual(result.returncode, EXIT_CONFIG, result.stdout)
+            self.assertEqual(open(path, encoding="utf-8").read(), before)
+
+    def test_profiles_save_rejects_junk(self):
+        result = self.run_scribe("profiles", "save", stdin="not json at all")
+        self.assertEqual(result.returncode, EXIT_USAGE)
+        self.assertIn("stdin", result.stderr)
+
+    def test_corrupt_profiles_are_reported_not_papered_over(self):
+        """Falling back to the built-ins would correct with prompts nobody chose."""
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("{ this is not json")
+        result = self.run_scribe("profiles")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+        self.assertIn("not valid JSON", result.stderr)
+        self.assertIn(path, result.stderr)
+
+    def test_a_profiles_file_with_no_usable_entry_is_reported(self):
+        path = os.path.join(self.config, "dms", "scribe", "profiles.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"profiles": [{"name": "", "system": ""}]}, handle)
+        result = self.run_scribe("profiles")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+        self.assertIn("No usable prompt", result.stderr)
+
+    # ----------------------------------------------------- custom instruction
+
+    def test_an_instruction_reaches_the_backend_inside_the_frame(self):
+        result = self.correct("x", "--backend", "reflect",
+                              "--instruction", "make it one sentence")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("make it one sentence", sent["system"])
+        # The guards have to survive the composition, or the picker grows a
+        # path where untrusted text is no longer quarantined.
+        self.assertIn("<text>", sent["system"])
+        self.assertIn("nothing else", sent["system"])
+        self.assertIn("Never", sent["system"])
+
+    def test_an_instruction_beats_a_profile(self):
+        result = self.correct("x", "--backend", "reflect",
+                              "--profile", "Formal",
+                              "--instruction", "make it one sentence")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("make it one sentence", sent["system"])
+        self.assertNotIn("raise the register", sent["system"])
+
+    def test_an_instruction_run_is_labelled_custom(self):
+        result = self.correct("x", "--backend", "echo",
+                              "--instruction", "make it one sentence")
+        self.assertEqual(json.loads(result.stdout)["profile"], "Custom")
+
+    def test_an_empty_instruction_falls_back_to_the_profile(self):
+        """An empty --instruction is absence, not a request for nothing."""
+        result = self.correct("x", "--backend", "reflect", "--instruction", "")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("correct spelling", sent["system"].lower())
+
+    def test_a_blank_instruction_is_refused(self):
+        result = self.correct("x", "--backend", "echo", "--instruction", "   ")
+        self.assertEqual(result.returncode, EXIT_USAGE, result.stdout)
+        self.assertIn("empty instruction", result.stderr)
+
+    def test_the_instruction_is_recorded_with_the_text(self):
+        self.correct("teh cat", "--backend", "echo",
+                     "--instruction", "make it one sentence")
+        entry = self.history()[0]
+        self.assertEqual(entry["profile"], "Custom")
+        self.assertEqual(entry["instruction"], "make it one sentence")
+
+    def test_the_instruction_is_not_recorded_without_the_text(self):
+        """It is text the user wrote, so metadata-only has to drop it too."""
+        self.correct("teh cat", "--backend", "echo",
+                     "--instruction", "make it one sentence",
+                     "--history-metadata-only")
+        entry = self.history()[0]
+        self.assertEqual(entry["profile"], "Custom")
+        self.assertNotIn("instruction", entry)
+        self.assertNotIn("original", entry)
+
+    def test_the_selection_is_tagged_as_data(self):
+        """The prompt-injection guard the profiles rely on has to be real."""
+        result = self.correct("x", "--backend", "reflect")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertIn("<text>", sent["system"])
+        self.assertIn("Never", sent["system"])
+
+    # -------------------------------------------------------------- failures
+
+    def test_empty_stdin_is_not_a_correction(self):
+        result = self.correct("   \n  ", "--backend", "echo")
+        self.assertEqual(result.returncode, EXIT_NO_SELECTION)
+
+    def test_unknown_backend_is_a_config_error(self):
+        result = self.correct("x", "--backend", "nosuch")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+        self.assertIn("nosuch", result.stderr)
+
+    def test_a_path_as_a_backend_name_is_refused(self):
+        """The name arrives from a hand-edited shell.json; it is not a path."""
+        result = self.correct("x", "--backend", "../../bin/sh")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+
+    def test_non_executable_backend_names_the_fix(self):
+        path = os.path.join(self.backends, "notexec")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("#!/bin/sh\n")
+        os.chmod(path, 0o644)
+        result = self.correct("x", "--backend", "notexec")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+        self.assertIn("chmod +x", result.stderr)
+
+    def test_config_exit_code_is_passed_through(self):
+        """An adapter saying "you have no key" must not read as a network blip."""
+        result = self.correct("x", "--backend", "noconfig")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+        self.assertIn("secret-tool", result.stderr)
+
+    def test_upstream_exit_code_is_passed_through(self):
+        result = self.correct("x", "--backend", "broken")
+        self.assertEqual(result.returncode, EXIT_UPSTREAM)
+        self.assertIn("upstream exploded", result.stderr)
+
+    def test_non_json_from_a_backend_is_upstream(self):
+        result = self.correct("x", "--backend", "garbage")
+        self.assertEqual(result.returncode, EXIT_UPSTREAM)
+
+    def test_missing_text_field_is_upstream(self):
+        result = self.correct("x", "--backend", "wrongshape")
+        self.assertEqual(result.returncode, EXIT_UPSTREAM)
+
+    def test_blank_correction_is_refused(self):
+        """Whitespace must never reach the clipboard as a "correction"."""
+        result = self.correct("x", "--backend", "empty")
+        self.assertEqual(result.returncode, EXIT_UPSTREAM)
+
+    def test_timeout_has_its_own_code(self):
+        result = self.correct("x", "--backend", "slow", "--timeout", "1")
+        self.assertEqual(result.returncode, EXIT_TIMEOUT)
+
+    def test_timeout_reaches_the_backend(self):
+        result = self.correct("x", "--backend", "reflect", "--timeout", "7")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertEqual(sent["timeoutSec"], 7)
+
+    def test_endpoint_reaches_the_backend_as_an_option(self):
+        """The panel setting has to arrive as options.baseUrl.
+
+        It travels this way rather than as an environment variable because
+        the shell that spawns the CLI inherits its environment from the login
+        session -- a freshly exported URL would not reach it until re-login,
+        which is a poor answer to "point it at my other machine".
+        """
+        result = self.correct("x", "--backend", "reflect",
+                              "--endpoint", "http://gpu-box.local:11434/v1")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertEqual(sent["options"], {"baseUrl": "http://gpu-box.local:11434/v1"})
+
+    def test_effort_reaches_the_backend_as_an_option(self):
+        result = self.correct("x", "--backend", "reflect", "--effort", "none")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertEqual(sent["options"], {"effort": "none"})
+
+    def test_no_endpoint_means_no_option(self):
+        result = self.correct("x", "--backend", "reflect")
+        sent = json.loads(json.loads(result.stdout)["corrected"])
+        self.assertEqual(sent["options"], {})
+
+    # -------------------------------------------------------------- unwrap
+
+    def test_a_stray_code_fence_is_removed(self):
+        result = self.correct("plain text", "--backend", "fenced")
+        self.assertEqual(json.loads(result.stdout)["corrected"], "corrected text")
+
+    def test_a_fence_is_kept_when_the_original_had_one(self):
+        """Correcting a fenced snippet must not eat its fence."""
+        result = self.correct("```\nsome code\n```", "--backend", "fenced")
+        self.assertEqual(json.loads(result.stdout)["corrected"], "```\ncorrected text\n```")
+
+    def test_trailing_newlines_match_the_original(self):
+        result = self.correct("no trailing newline", "--backend", "trailing")
+        self.assertEqual(json.loads(result.stdout)["corrected"], "corrected text")
+
+    def test_a_trailing_newline_is_restored_when_the_original_had_one(self):
+        result = self.correct("had one\n", "--backend", "echo")
+        self.assertTrue(json.loads(result.stdout)["corrected"].endswith("\n"))
+
+    # -------------------------------------------------------------- history
+
+    def history(self):
+        result = self.run_scribe("history")
+        return json.loads(result.stdout)["entries"]
+
+    def test_a_run_is_recorded(self):
+        self.correct("teh cat", "--backend", "echo")
+        entries = self.history()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["corrected"], "the cat")
+        self.assertEqual(entries[0]["backend"], "echo")
+        self.assertEqual(entries[0]["source"], "stdin")
+
+    def test_history_is_newest_first(self):
+        self.correct("teh one", "--backend", "echo")
+        self.correct("teh two", "--backend", "echo")
+        self.assertEqual(self.history()[0]["corrected"], "the two")
+
+    def test_history_respects_the_limit(self):
+        for i in range(4):
+            self.correct("teh %d" % i, "--backend", "echo")
+        self.assertEqual(len(self.history()), 4)
+        self.correct("teh last", "--backend", "echo", "--history-limit", "2")
+        self.assertEqual(len(self.history()), 2)
+
+    def test_metadata_only_writes_no_text(self):
+        """The privacy switch has to actually keep text off the disk."""
+        self.correct("teh secret", "--backend", "echo", "--history-metadata-only")
+        entry = self.history()[0]
+        self.assertNotIn("original", entry)
+        self.assertNotIn("corrected", entry)
+        self.assertEqual(entry["correctedLength"], len("the secret"))
+        with open(os.path.join(self.state, "dms", "scribe", "history.json"), encoding="utf-8") as h:
+            self.assertNotIn("secret", h.read())
+
+    def test_no_history_writes_no_file(self):
+        self.correct("teh cat", "--backend", "echo", "--no-history")
+        self.assertFalse(os.path.exists(os.path.join(self.state, "dms", "scribe", "history.json")))
+
+    def test_history_file_is_private(self):
+        self.correct("teh cat", "--backend", "echo")
+        path = os.path.join(self.state, "dms", "scribe", "history.json")
+        self.assertEqual(oct(os.stat(path).st_mode & 0o777), oct(0o600))
+
+    def test_history_clear_empties_it(self):
+        self.correct("teh cat", "--backend", "echo")
+        self.run_scribe("history", "clear")
+        self.assertEqual(self.history(), [])
+
+    def test_a_failed_run_is_not_recorded(self):
+        self.correct("x", "--backend", "broken")
+        self.assertEqual(self.history(), [])
+
+    # -------------------------------------------------------------- listings
+
+    def test_backends_lists_shipped_and_user_adapters(self):
+        names = json.loads(self.run_scribe("backends", "--json").stdout)["backends"]
+        self.assertIn("anthropic", names)     # shipped
+        self.assertIn("echo", names)          # user directory
+        self.assertNotIn("README.md", names)  # not executable
+
+    def test_doctor_reports_a_working_backend(self):
+        """The backend's own --check has to be run and reported.
+
+        The overall exit code is deliberately not asserted here: a CI runner
+        has no wl-clipboard, so doctor is right to exit 2 there. That the
+        selected backend resolved and answered is what this covers.
+        """
+        result = self.run_scribe("doctor", "--backend", "echo")
+        self.assertIn("echo needs nothing", result.stdout)
+        self.assertIn("selected     echo", result.stdout)
+
+    @unittest.skipUnless(
+        shutil.which("wl-paste") and shutil.which("wl-copy"),
+        "needs wl-clipboard; a headless runner has none",
+    )
+    def test_doctor_passes_on_a_configured_machine(self):
+        result = self.run_scribe("doctor", "--backend", "echo")
+        self.assertEqual(result.returncode, EXIT_OK, result.stdout)
+
+    def test_doctor_reports_missing_clipboard_tools(self):
+        """wl-paste and wl-copy are not optional; their absence is a problem."""
+        # A PATH holding only what a stub backend's shebang needs, so
+        # wl-paste and wl-copy are genuinely absent while the adapters still
+        # start.
+        minimal = tempfile.mkdtemp(prefix="scribe-minbin-")
+        for tool in ("env", "python3"):
+            found = shutil.which(tool)
+            if found:
+                os.symlink(found, os.path.join(minimal, tool))
+        env = dict(self.env)
+        env["PATH"] = minimal
+        try:
+            result = subprocess.run(
+                [sys.executable, SCRIBE, "doctor", "--backend", "echo"],
+                capture_output=True, text=True, env=env, timeout=60,
+            )
+        finally:
+            shutil.rmtree(minimal, ignore_errors=True)
+        self.assertEqual(result.returncode, EXIT_CONFIG, result.stdout)
+        self.assertIn("MISSING", result.stdout)
+        self.assertIn("wl-paste", result.stdout)
+
+    def test_doctor_fails_on_a_missing_backend(self):
+        result = self.run_scribe("doctor", "--backend", "nosuch")
+        self.assertEqual(result.returncode, EXIT_CONFIG)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=0, buffer=True)

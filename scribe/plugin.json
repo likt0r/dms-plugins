@@ -1,0 +1,14 @@
+{
+    "id": "scribe",
+    "name": "Scribe",
+    "description": "Text markieren, Taste druecken: die korrigierte Fassung liegt in der Zwischenablage. Ein Klick aufs Bar-Icon oeffnet das Prompt-Grid; dahinter liegen History, Prompt-Editor und alle Einstellungen",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["text-correction"],
+    "component": "./ScribeWidget.qml",
+    "settings": "./Settings.qml",
+    "icon": "spellcheck",
+    "dependencies": ["python3", "wl-clipboard"],
+    "permissions": ["settings_read", "settings_write"]
+}
