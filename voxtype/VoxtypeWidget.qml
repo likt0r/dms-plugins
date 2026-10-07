@@ -22,10 +22,14 @@ PluginComponent {
         "transcribing": "hourglass_top"
     })[dictState] || "mic_off"
 
-    readonly property color stateColor: dictState === "recording" ? Theme.error
-        : dictState === "transcribing" ? Theme.warning
-        : dictState === "idle" ? Theme.surfaceText
-        : Theme.surfaceVariantText
+    // Aktiv (Aufnahme/Transkription) in der System-Akzentfarbe, sonst wie
+    // die uebrigen Bar-Icons (Theme.widgetTextColor) -- kein rot/orange.
+    readonly property bool isActive: dictState === "recording" || dictState === "transcribing"
+    readonly property color stateColor: isActive ? Theme.primary : Theme.widgetTextColor
+
+    // Gleiche Icon-Groesse wie die eingebauten Widgets (z.B. IdleInhibitor).
+    readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
+        root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
 
     // Pill nur zeigen, wenn der Daemon laeuft. Nicht pgrep -x voxtype:
     // seit dem offiziellen RPM heisst der Prozess nach Variante, z.B.
@@ -69,19 +73,16 @@ PluginComponent {
     }
 
     horizontalBarPill: Component {
-        StyledRect {
-            readonly property bool recording: root.dictState === "recording"
-            width: pillIcon.implicitWidth + Theme.spacingM * 2
-            height: parent.widgetThickness
-            radius: Theme.cornerRadius
-            color: recording ? Theme.errorHover : "transparent"
+        Item {
+            implicitWidth: pillIcon.width
+            implicitHeight: pillIcon.height
 
             DankIcon {
                 id: pillIcon
                 anchors.centerIn: parent
                 name: root.stateIcon
                 color: root.stateColor
-                size: Theme.iconSize
+                size: root.barIconPx
 
                 SequentialAnimation on opacity {
                     running: root.dictState === "recording" && root.surfaceLive
@@ -95,19 +96,16 @@ PluginComponent {
     }
 
     verticalBarPill: Component {
-        StyledRect {
-            readonly property bool recording: root.dictState === "recording"
-            width: parent.widgetThickness
-            height: pillIconV.implicitHeight + Theme.spacingM * 2
-            radius: Theme.cornerRadius
-            color: recording ? Theme.errorHover : "transparent"
+        Item {
+            implicitWidth: pillIconV.width
+            implicitHeight: pillIconV.height
 
             DankIcon {
                 id: pillIconV
                 anchors.centerIn: parent
                 name: root.stateIcon
                 color: root.stateColor
-                size: Theme.iconSizeSmall
+                size: root.barIconPx
 
                 SequentialAnimation on opacity {
                     running: root.dictState === "recording" && root.surfaceLive
