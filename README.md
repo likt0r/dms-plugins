@@ -42,4 +42,4 @@ DMS-Einstellungen (Theme → Colors) oder per settings.json
 
 | Theme | Beschreibung |
 |---|---|
-| [`themes/faktenforum/`](themes/faktenforum/) | Faktenforum-Branding (Indigo/Zinc aus dem Nuxt-UI-Frontend, Korall als Zweitakzent), dark + light. Dazu gehören die Fonts Source Sans 3 / Source Code Pro (`fontFamily`/`monoFontFamily`, Installation über das dotfiles-Repo). |
+| [`themes/faktenforum/`](themes/faktenforum/) | Faktenforum-Branding (Indigo/Zinc aus dem Nuxt-UI-Frontend, Korall als Zweitakzent), dark + light. Dazu gehören die Fonts Source Sans 3 / Source Code Pro (`fontFamily`/`monoFontFamily`, Installation über das dotfiles-Repo) und ein Wallpaper (`wallpaper.jpg`, Quelle `wallpaper.svg`; setzen mit `dms ipc call wallpaper set ~/.config/DankMaterialShell/themes/faktenforum/wallpaper.jpg`). |
