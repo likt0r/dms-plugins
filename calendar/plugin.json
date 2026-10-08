@@ -1,0 +1,15 @@
+{
+    "id": "calendar",
+    "name": "Kalender",
+    "description": "Datum und Uhrzeit in der Bar, Klick zeigt Monatsraster, Tagesagenda und Termindetails aus DankCalendar",
+    "version": "0.1.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["calendar", "clock"],
+    "component": "./CalendarWidget.qml",
+    "settings": "./Settings.qml",
+    "icon": "calendar_month",
+    "requires_dms": ">=1.6.0",
+    "dependencies": ["dcal"],
+    "permissions": ["settings_read", "settings_write", "process"]
+}
