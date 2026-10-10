@@ -32,6 +32,7 @@ PluginComponent {
     property string letzterModus: ""
 
     signal osdZeigen
+    signal osdVerbergen
 
     readonly property string modus: root.zustand.modus || "alle"
     readonly property var externe: (root.zustand.outputs || []).filter(o => !o.intern)
@@ -43,6 +44,7 @@ PluginComponent {
         {
             id: "alle",
             label: "Alle Bildschirme",
+            kurz: "Alle",
             icon: "devices",
             frei: root.hatExtern,
             grund: "Nur ein Bildschirm angeschlossen"
@@ -50,6 +52,7 @@ PluginComponent {
         {
             id: "extern",
             label: "Nur extern",
+            kurz: "Extern",
             icon: "monitor",
             frei: root.hatExtern,
             grund: "Kein externer Bildschirm angeschlossen"
@@ -57,6 +60,7 @@ PluginComponent {
         {
             id: "intern",
             label: "Nur intern",
+            kurz: "Intern",
             icon: "laptop",
             frei: true,
             grund: ""
@@ -64,6 +68,7 @@ PluginComponent {
         {
             id: "spiegeln",
             label: "Spiegeln",
+            kurz: "Spiegeln",
             icon: "screen_share",
             frei: root.spiegelbar,
             grund: root.hatExtern ? "Braucht wl-mirror (dnf install wl-mirror)"
@@ -72,6 +77,17 @@ PluginComponent {
     ]
 
     readonly property var aktiverModus: root.modi.find(m => m.id === root.modus) || root.modi[0]
+    readonly property var freieModi: root.modi.filter(m => m.frei)
+
+    // Auswahl im HUD, wie GNOMEs Super+P: der erste Druck zeigt alle Modi und
+    // markiert den aktuellen, jeder weitere wandert eine Stufe weiter, nach
+    // kurzer Pause wird uebernommen. Deshalb kein Popout mehr auf F7 -- das
+    // bleibt auf dem Klick aufs Bar-Icon.
+    property bool auswahlOffen: false
+    property int auswahlIndex: 0
+    // Merker, damit die vom HUD selbst ausgeloeste Moduswechsel-Meldung nicht
+    // direkt hinterher nochmal als Einzelanzeige aufpoppt.
+    property bool ausDerAuswahl: false
     readonly property string modusLabel: root.aktiverModus.label
 
     readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
@@ -96,8 +112,12 @@ PluginComponent {
             const neu = JSON.parse(text)
             if (neu && neu.modus) {
                 root.zustand = neu
-                if (root.letzterModus !== "" && root.letzterModus !== neu.modus)
-                    root.osdZeigen()
+                if (root.letzterModus !== "" && root.letzterModus !== neu.modus) {
+                    if (root.ausDerAuswahl)
+                        root.ausDerAuswahl = false
+                    else
+                        root.osdZeigen()
+                }
                 root.letzterModus = neu.modus
             }
         } catch (e) {
@@ -133,17 +153,52 @@ PluginComponent {
         root.setzen(frei[(i + 1) % frei.length].id)
     }
 
+    function tasteGedrueckt() {
+        const frei = root.freieModi
+        if (frei.length < 2) {
+            ToastService?.showWarning("Kein externer Bildschirm angeschlossen")
+            return
+        }
+        if (!root.auswahlOffen) {
+            root.auswahlOffen = true
+            const i = frei.findIndex(m => m.id === root.modus)
+            root.auswahlIndex = i >= 0 ? i : 0
+        } else {
+            root.auswahlIndex = (root.auswahlIndex + 1) % frei.length
+        }
+        root.osdZeigen()
+        uebernahme.restart()
+    }
+
     function einstellungenOeffnen() {
         Quickshell.execDetached(["dms", "ipc", "call", "settings", "openWith", "displays"])
     }
 
     pillRightClickAction: () => root.weiter()
 
-    Component.onCompleted: root.laden()
+    // Ohne zweiten Schirm gibt es nichts umzuschalten -- dann auch kein Icon.
+    // F7 oeffnet das Popout ohnehin, unabhaengig von der Pille.
+    onHatExternChanged: root.setVisibilityOverride(root.hatExtern)
+
+    Component.onCompleted: {
+        root.laden()
+        root.setVisibilityOverride(root.hatExtern)
+    }
+
+    // Beim An- und Abstecken sofort nachlesen statt bis zum naechsten
+    // 30-s-Takt zu warten. Deckt den haeufigen Fall ab; ein angeschlossener,
+    // aber abgeschalteter Schirm taucht in Quickshell.screens nicht auf, den
+    // faengt erst der Takt.
+    Connections {
+        target: Quickshell
+        function onScreensChanged() {
+            root.laden()
+        }
+    }
 
     // Steuerung von aussen (Keybind in niri/config.kdl):
-    //   dms ipc call bildschirme taste        F7: oeffnen, dann weiterschalten
-    //   dms ipc call bildschirme toggle       nur das Popout
+    //   dms ipc call bildschirme taste        F7: Auswahl im HUD, weiterwandern
+    //   dms ipc call bildschirme toggle       das Popout mit den Profilen
     //   dms ipc call bildschirme waehle <modus>
     //   dms ipc call bildschirme weiter
     //   dms ipc call bildschirme status
@@ -154,12 +209,8 @@ PluginComponent {
         target: "bildschirme"
 
         function taste(): string {
-            if (root.popoutOffen) {
-                root.weiter()
-                return "weiter"
-            }
-            root.triggerPopout()
-            return "offen"
+            root.tasteGedrueckt()
+            return root.auswahlOffen ? "auswahl" : "nichts zu waehlen"
         }
 
         function toggle(): string {
@@ -187,8 +238,17 @@ PluginComponent {
         }
 
         // Zeigt nur das OSD, ohne etwas umzuschalten -- zum Pruefen von Sitz
-        // und Aussehen.
-        function osd(): string {
+        // und Aussehen. "auswahl" zeigt die Auswahlzeile auch dann, wenn
+        // mangels zweitem Schirm gar nichts zu waehlen waere.
+        function osd(was: string): string {
+            if (was === "auswahl") {
+                root.auswahlOffen = true
+                root.auswahlIndex = 0
+                root.osdZeigen()
+                probeEnde.restart()
+                return "ok"
+            }
+            root.auswahlOffen = false
             root.osdZeigen()
             return "ok"
         }
@@ -209,6 +269,31 @@ PluginComponent {
         // Nach dem Schalten nachlesen statt raten -- wl-mirror braucht einen
         // Moment, bis pgrep ihn sieht.
         onExited: nachlauf.restart()
+    }
+
+    // Nach dieser Pause ohne weiteren Druck gilt die Auswahl.
+    // Beendet die Probe-Auswahl, ohne etwas zu schalten.
+    Timer {
+        id: probeEnde
+        interval: 8000
+        onTriggered: {
+            root.auswahlOffen = false
+            root.osdVerbergen()
+        }
+    }
+
+    Timer {
+        id: uebernahme
+        interval: 1200
+        onTriggered: {
+            const ziel = root.freieModi[root.auswahlIndex]
+            root.auswahlOffen = false
+            if (ziel && ziel.id !== root.modus) {
+                root.ausDerAuswahl = true
+                root.setzen(ziel.id)
+            }
+            root.osdVerbergen()
+        }
     }
 
     Timer {
@@ -236,16 +321,35 @@ PluginComponent {
         delegate: DankOSD {
             id: osd
 
-            osdWidth: Math.min(Math.max(120, Theme.iconSize + beschriftung.width + Theme.spacingS * 4),
-                               screenWidth - Theme.spacingM * 2)
-            osdHeight: 40 + Theme.spacingS * 2
+            readonly property real eintragBreite: 88
+
+            osdWidth: root.auswahlOffen
+                ? Math.min(root.modi.length * eintragBreite + Theme.spacingS * 2,
+                           screenWidth - Theme.spacingM * 2)
+                : Math.min(Math.max(120, Theme.iconSize + beschriftung.width + Theme.spacingS * 4),
+                           screenWidth - Theme.spacingM * 2)
+            osdHeight: (root.auswahlOffen ? 62 : 40) + Theme.spacingS * 2
             autoHideInterval: 2000
             enableMouseInteraction: false
+
+            // Nur animieren, solange das OSD schon steht -- sonst geht es beim
+            // Oeffnen in der falschen Groesse auf und waechst sichtbar nach.
+            Behavior on osdWidth {
+                enabled: osd.shouldBeVisible
+                NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+            }
+            Behavior on osdHeight {
+                enabled: osd.shouldBeVisible
+                NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+            }
 
             Connections {
                 target: root
                 function onOsdZeigen() {
                     osd.show()
+                }
+                function onOsdVerbergen() {
+                    osd.hide()
                 }
             }
 
@@ -260,29 +364,103 @@ PluginComponent {
             }
 
             content: Item {
+                id: inhalt
+
                 property int abstand: Theme.spacingS
 
                 anchors.centerIn: parent
                 width: parent.width - Theme.spacingS * 2
-                height: 40
+                height: parent.height - Theme.spacingS * 2
 
-                DankIcon {
-                    x: parent.abstand
-                    anchors.verticalCenter: parent.verticalCenter
-                    name: root.aktiverModus.icon
-                    size: Theme.iconSize
-                    color: Theme.primary
+                // --- Auswahl: alle Modi nebeneinander, der gewaehlte markiert
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 0
+                    opacity: root.auswahlOffen ? 1 : 0
+                    visible: opacity > 0.01
+                    Behavior on opacity {
+                        NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+                    }
+
+                    Repeater {
+                        model: root.modi
+
+                        Item {
+                            id: eintrag
+
+                            required property var modelData
+                            readonly property bool gewaehlt: root.auswahlOffen
+                                && root.freieModi[root.auswahlIndex]
+                                && root.freieModi[root.auswahlIndex].id === eintrag.modelData.id
+
+                            width: osd.eintragBreite
+                            height: 62
+                            // Nicht moegliche Modi blass: sie stehen da, damit
+                            // die Reihe nicht die Breite wechselt, sind aber
+                            // beim Weiterwandern uebersprungen.
+                            opacity: eintrag.modelData.frei ? 1 : 0.35
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width - 6
+                                height: parent.height - 4
+                                radius: Theme.cornerRadius
+                                color: eintrag.gewaehlt ? Theme.surfaceContainerHigh : "transparent"
+                                border.color: eintrag.gewaehlt ? Theme.primary : "transparent"
+                                border.width: eintrag.gewaehlt ? 1 : 0
+                                Behavior on color { ColorAnimation { duration: Anims.durShort } }
+                                Behavior on border.color { ColorAnimation { duration: Anims.durShort } }
+                            }
+
+                            Column {
+                                anchors.centerIn: parent
+                                spacing: 2
+
+                                DankIcon {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    name: eintrag.modelData.icon
+                                    size: Theme.iconSize
+                                    color: eintrag.gewaehlt ? Theme.primary : Theme.surfaceText
+                                }
+
+                                StyledText {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: eintrag.modelData.kurz
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: eintrag.gewaehlt ? Theme.primary : Theme.surfaceVariantText
+                                }
+                            }
+                        }
+                    }
                 }
 
-                StyledText {
-                    x: parent.abstand * 2 + Theme.iconSize
-                    width: parent.width - Theme.iconSize - parent.abstand * 3
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.modusLabel
-                    font.pixelSize: Theme.fontSizeMedium
-                    font.weight: Font.Medium
-                    color: Theme.surfaceText
-                    elide: Text.ElideRight
+                // --- Einzelanzeige fuer Wechsel, die woanders ausgeloest wurden
+                Item {
+                    anchors.fill: parent
+                    opacity: root.auswahlOffen ? 0 : 1
+                    visible: opacity > 0.01
+                    Behavior on opacity {
+                        NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+                    }
+
+                    DankIcon {
+                        x: inhalt.abstand
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: root.aktiverModus.icon
+                        size: Theme.iconSize
+                        color: Theme.primary
+                    }
+
+                    StyledText {
+                        x: inhalt.abstand * 2 + Theme.iconSize
+                        width: parent.width - Theme.iconSize - inhalt.abstand * 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.modusLabel
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Medium
+                        color: Theme.surfaceText
+                        elide: Text.ElideRight
+                    }
                 }
             }
         }

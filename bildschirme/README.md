@@ -10,12 +10,30 @@ der aktive markiert. Gedacht fuer die Anzeige-Sondertaste des ThinkPads
 
 | Weg | Wirkung |
 |---|---|
-| F7 (`dms ipc call bildschirme taste`) | Popout oeffnen; bei offenem Popout eine Stufe weiter |
-| Klick aufs Bar-Icon | Popout oeffnen |
-| Rechtsklick aufs Bar-Icon | eine Stufe weiter, ohne Popout |
-| Esc / Klick daneben | schliessen |
+| F7 (`dms ipc call bildschirme taste`) | Auswahl unten am Bildschirm; weitere Drucke wandern, nach 1,2 s wird uebernommen |
+| Klick aufs Bar-Icon | Popout mit Modi und Anzeigeprofilen |
+| Rechtsklick aufs Bar-Icon | eine Stufe weiter, ohne Anzeige |
+| Esc / Klick daneben | Popout schliessen |
 
-Pfeiltasten gibt es nicht — DMS-Popouts haben keinen KeyCatcher.
+**F7 zeigt kein Popout mehr**, sondern ein HUD wie Lautstaerke und Flugmodus:
+alle Modi nebeneinander, der gewaehlte gerahmt, nicht moegliche blass. Das ist
+GNOMEs Super+P nachempfunden. Das Popout mit den Anzeigeprofilen bleibt am
+Bar-Icon -- und das Bar-Icon erscheint nur bei angeschlossenem zweitem Schirm.
+
+Pfeiltasten gibt es nicht — DMS-Popouts haben keinen KeyCatcher; das HUD wird
+deshalb ueber wiederholte Drucke bedient, nicht ueber Navigation.
+
+Zum Pruefen ohne zweiten Schirm: `dms ipc call bildschirme osd auswahl` zeigt
+die Auswahlzeile, ohne dass etwas zu waehlen waere (endet nach 8 s von
+selbst).
+
+## Wann die Pille zu sehen ist
+
+Nur, wenn ein externer Schirm angeschlossen ist -- ohne zweiten Monitor gibt
+es nichts umzuschalten. Die Pille haengt an `hatExtern`; beim An- und
+Abstecken liest das Plugin sofort nach (`Quickshell.onScreensChanged`), ein
+angeschlossener aber abgeschalteter Schirm faellt erst dem 30-Sekunden-Takt
+auf. F7 oeffnet das Popout unabhaengig davon.
 
 ## Modi
 
