@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Proton-VPN-Standorte als kompaktes JSON für das VPN-Widget.
+
+Liest die Serverliste, die die Proton-Bibliothek (proton-vpn-cli) unter
+~/.cache/Proton/VPN/serverlist.json zwischenspeichert -- rund 20 MB, viel zu
+viel für ein QML-Binding -- und fasst sie je Land und Stadt zusammen. Ins Netz
+geht dieses Skript nicht: die Liste aktualisiert die CLI selbst bei jedem
+`protonvpn connect`.
+
+Ausgabe (stdout):
+  {"fetchedAt": <unix>, "maxTier": 2, "error": "",
+   "countries": [{"code": "CH", "name": "Schweiz",
+                  "servers": 86, "online": 86, "load": 31,
+                  "features": {"securecore": 4, "p2p": 30, "tor": 2},
+                  "cities": [{"name": "Zürich", "servers": 70, "load": 28}]}]}
+
+Das Ergebnis wird neben der Quelle gecacht und nur neu gebaut, wenn sich die
+Serverliste geändert hat. Fehler stehen im Feld "error", der Exit-Code bleibt 0,
+damit das Widget sie anzeigen kann statt nur "Code 1".
+"""
+
+import gettext
+import json
+import os
+import sys
+
+FEATURE_SECURE_CORE = 1
+FEATURE_TOR = 2
+FEATURE_P2P = 4
+
+CACHE_HOME = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+SOURCE = os.path.join(CACHE_HOME, "Proton", "VPN", "serverlist.json")
+OUTPUT = os.path.join(CACHE_HOME, "dms", "vpn-proton-locations.json")
+ISO_JSON = "/usr/share/iso-codes/json/iso_3166-1.json"
+
+# Proton schreibt das Vereinigte Königreich als "UK", ISO als "GB".
+CODE_ALIASES = {"UK": "GB"}
+
+
+def country_names():
+    """Code -> Name in der Sprache der Sitzung, aus iso-codes."""
+    names = {}
+    try:
+        with open(ISO_JSON, encoding="utf-8") as fh:
+            entries = json.load(fh).get("3166-1", [])
+    except (OSError, ValueError):
+        return names
+    try:
+        tr = gettext.translation("iso_3166-1").gettext
+    except OSError:
+        tr = lambda s: s  # noqa: E731
+    for entry in entries:
+        english = entry.get("common_name") or entry.get("name") or ""
+        translated = tr(english)
+        # common_name ist oft nicht übersetzt, name schon ("Schweiz").
+        if translated == english and entry.get("name"):
+            translated = tr(entry["name"])
+        names[entry.get("alpha_2", "")] = translated
+    return names
+
+
+def summarize(data):
+    max_tier = data.get("MaxTier", 0)
+    names = country_names()
+    countries = {}
+    for logical in data.get("LogicalServers", []):
+        if logical.get("Tier", 0) > max_tier:
+            continue
+        code = logical.get("ExitCountry") or ""
+        if not code:
+            continue
+        iso = CODE_ALIASES.get(code, code)
+        country = countries.setdefault(code, {
+            "code": code,
+            "flag": iso,
+            "name": names.get(iso, code),
+            "servers": 0,
+            "online": 0,
+            "_load": 0,
+            "features": {"securecore": 0, "p2p": 0, "tor": 0},
+            "_cities": {},
+        })
+        features = logical.get("Features", 0)
+        online = logical.get("Status") == 1
+        load = logical.get("Load", 0) or 0
+        country["servers"] += 1
+        if online:
+            country["online"] += 1
+            country["_load"] += load
+        if features & FEATURE_SECURE_CORE:
+            country["features"]["securecore"] += 1
+            # Secure-Core-Server zählen nicht als Stadt: ihre "City" ist der
+            # Ausgang, verbunden wird aber über das Eingangsland.
+            continue
+        if features & FEATURE_P2P:
+            country["features"]["p2p"] += 1
+        if features & FEATURE_TOR:
+            country["features"]["tor"] += 1
+        city_name = logical.get("City") or ""
+        if city_name:
+            city = country["_cities"].setdefault(city_name, {"name": city_name, "servers": 0, "_load": 0, "_online": 0})
+            city["servers"] += 1
+            if online:
+                city["_online"] += 1
+                city["_load"] += load
+
+    result = []
+    for country in countries.values():
+        cities = []
+        for city in country.pop("_cities").values():
+            online = city.pop("_online")
+            total = city.pop("_load")
+            city["load"] = round(total / online) if online else 0
+            cities.append(city)
+        cities.sort(key=lambda c: c["name"])
+        total = country.pop("_load")
+        country["load"] = round(total / country["online"]) if country["online"] else 0
+        country["cities"] = cities
+        result.append(country)
+    result.sort(key=lambda c: c["name"])
+    return {"maxTier": max_tier, "countries": result}
+
+
+def main():
+    try:
+        mtime = os.path.getmtime(SOURCE)
+    except OSError:
+        print(json.dumps({"fetchedAt": 0, "error": "Keine Serverliste gefunden – einmal 'protonvpn connect' ausführen", "countries": []}))
+        return 0
+
+    force = "--force" in sys.argv[1:]
+    if not force:
+        try:
+            with open(OUTPUT, encoding="utf-8") as fh:
+                cached = json.load(fh)
+            if cached.get("fetchedAt") == int(mtime):
+                print(json.dumps(cached, ensure_ascii=False))
+                return 0
+        except (OSError, ValueError):
+            pass
+
+    try:
+        with open(SOURCE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"fetchedAt": 0, "error": f"Serverliste unlesbar: {exc}", "countries": []}))
+        return 0
+
+    payload = summarize(data)
+    payload["fetchedAt"] = int(mtime)
+    payload["error"] = ""
+    text = json.dumps(payload, ensure_ascii=False)
+    try:
+        os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
+        tmp = OUTPUT + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, OUTPUT)
+    except OSError:
+        pass
+    print(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

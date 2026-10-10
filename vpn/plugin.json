@@ -1,0 +1,24 @@
+{
+    "id": "vpnHub",
+    "name": "VPN Hub",
+    "description": "Ein Bar-Icon fuer alle VPN-Verbindungen: NetworkManager-Profile (WireGuard, OpenVPN, ...) und Proton VPN ueber die offizielle CLI, mit Laenderauswahl, Favoriten und Traffic im Popout",
+    "version": "1.1.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": [
+        "vpn",
+        "proton-vpn"
+    ],
+    "component": "./VpnWidget.qml",
+    "settings": "./Settings.qml",
+    "icon": "vpn_lock",
+    "requires_dms": ">=1.6.0",
+    "dependencies": [
+        "python3"
+    ],
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ]
+}

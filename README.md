@@ -26,11 +26,12 @@ platzieren.
 
 | Plugin | Typ | Zweck |
 |---|---|---|
+| [`vpn/`](vpn/) | widget | **VPN Hub** (Id `vpnHub`): ein Icon für alle VPNs — NetworkManager-Profile und Proton VPN über die offizielle CLI; Popout mit Status, Traffic, Schaltern, Länderauswahl und Favoriten. Port von `likt0r.vpn`. |
 | [`voxtype/`](voxtype/) | widget | Diktat-Status in der Bar (voxtype); Klick: Aufnahme an/aus, Rechtsklick: Konfiguration. Ersatz für Omarchys `Dictation.qml`. |
 
 ## Geplant (Portierung von Omarchy, siehe Umstiegsplan Phase 3)
 
-`warthemahl` (Pilot), `wake`, `vpn`, `calendar`, `scribe`.
+Offen: `wake`. Portiert: `warthemahl` (Pilot), `scribe`, `calendar`, `vpn`.
 
 ## Themes
 
