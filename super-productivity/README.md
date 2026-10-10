@@ -24,9 +24,11 @@ WebDAV zu OpenCloud) erledigt die App.
   Schließen des Fensters die App und mit ihr die API.
 - `curl`.
 
-SP muss laufen. Im dotfiles-Repo startet `niri/hosts/<host>.kdl` es beim
-Login und schiebt das Fenster ungefokusst auf Workspace 9. Einen versteckten
-Start kennt SP 19 nicht.
+SP muss laufen. Im dotfiles-Repo läuft es als systemd-User-Dienst
+(`systemd/user/super-productivity.service`, `Restart=always`), und eine
+niri-Regel legt das Fenster ungefokusst auf Workspace 9. Ganz ohne Fenster
+geht es nicht: Die REST-API beantwortet die Angular-Oberfläche von SP, nicht
+der Electron-Hauptprozess. Einen versteckten Start kennt SP 19 auch nicht.
 
 ## Bedienung
 
