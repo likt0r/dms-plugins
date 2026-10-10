@@ -1,0 +1,12 @@
+{
+    "id": "schalter",
+    "name": "Umschalter",
+    "description": "Eine Pille in der Bar-Mitte fuer Stay-awake, Nicht stoeren und Diktat: aktive Umschalter immer sichtbar, die uebrigen erscheinen beim Hovern. Klick schaltet",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["status-toggles"],
+    "component": "./SchalterWidget.qml",
+    "icon": "tune",
+    "permissions": ["settings_read"]
+}

@@ -22,6 +22,19 @@ Das Bar-Icon bleibt daneben bestehen und pulsiert waehrend der Aufnahme.
 | `dms ipc call voxtype status` | `<echte Phase>/<angezeigte Phase>` |
 | `dms ipc call voxtype osd recording\|transcribing\|aus` | OSD mit Demo-Daten, ohne Mikrofon |
 
+## Das Bar-Icon steht auf "aus" -- das Plugin trotzdem nicht
+
+Seit es die Umschalter-Gruppe (`schalter/`) gibt, zeigt die den Diktat-Zustand
+in der Bar-Mitte. Das eigene Icon waere doppelt und ist deshalb im Bar-Eintrag
+abgeschaltet: `{"id": "voxtype", "enabled": false}` (in den DMS-Einstellungen
+das Augen-Symbol beim Widget).
+
+**Das Plugin aus `rightWidgets` zu entfernen waere etwas anderes und falsch:**
+ein Plugin laeuft nur, solange sein Widget in der Bar steht -- mit dem Eintrag
+verschwaende auch das OSD. `enabled: false` nimmt dagegen nur das Delegate aus
+der Sektion; `WidgetHost.active` haengt nicht daran, Prozesse, IpcHandler und
+die OSD-Fenster laufen weiter.
+
 ## Woher die Daten kommen
 
 Beides von voxtype selbst, nichts geschaetzt und nichts nebenher
