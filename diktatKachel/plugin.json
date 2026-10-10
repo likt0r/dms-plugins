@@ -1,0 +1,12 @@
+{
+    "id": "diktatKachel",
+    "name": "Diktat (Kachel)",
+    "description": "Kachel im Control Center fuer das Diktat (voxtype) der schalter-Gruppe: zeigt Aufnahme/Transkribieren, Klick schaltet",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["control-center"],
+    "component": "./DiktatKachel.qml",
+    "icon": "mic",
+    "permissions": ["settings_read"]
+}

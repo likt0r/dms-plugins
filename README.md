@@ -27,6 +27,8 @@ platzieren.
 | Plugin | Typ | Zweck |
 |---|---|---|
 | [`schalter/`](schalter/) | widget | **Umschalter-Gruppe** in der Bar-Mitte: Wachhalten, VPN, Diktat, Bildschirmaufnahme (Auswahl als HUD auf F10) und Benachrichtigungen. Aktive Icons stehen immer da, die uebrigen erscheinen beim Hovern. Ersatz fuer Omarchys `omarchy.indicators`. |
+| [`aufnahmeKachel/`](aufnahmeKachel/) | widget (Control Center) | Kachel fuer die Bildschirmaufnahme der schalter-Gruppe: Laufzeit, Klick = Auswahl/Stopp. |
+| [`diktatKachel/`](diktatKachel/) | widget (Control Center) | Kachel fuers Diktat (voxtype) der schalter-Gruppe. |
 | [`bildschirme/`](bildschirme/) | widget | Bildschirmmodus umschalten wie GNOMEs Super+P: alle, nur extern, nur intern, spiegeln (ueber wl-mirror) -- dazu die DMS-Anzeigeprofile. Gedacht fuer die Anzeige-Sondertaste F7. |
 | [`flugmodus/`](flugmodus/) | widget | Flugzeug-Icon in der Bar, solange der Flugmodus laeuft -- sonst nichts; OSD beim Umschalten. Klick schaltet ihn aus. |
 | [`vpn/`](vpn/) | widget | **VPN Hub** (Id `vpnHub`): ein Icon für alle VPNs — NetworkManager-Profile und Proton VPN über die offizielle CLI; Popout mit Status, Traffic, Schaltern, Länderauswahl und Favoriten. Port von `likt0r.vpn`. |

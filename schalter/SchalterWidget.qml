@@ -57,6 +57,25 @@ PluginComponent {
 
     property bool gruppeGehovert: false
 
+    // --- Anker fuer die Kachel-Plugins ---------------------------------------
+    // aufnahmeKachel/diktatKachel (Control Center) zeigen nur an und reichen
+    // den Klick hierher durch. Sie finden diese Instanz in
+    // PluginService.globalVars, wie die Gruppe selbst vpnHub findet.
+    // Gemeldet wird nur mit Schirm: das Control Center legt beim Auflisten
+    // der Plugins Wegwerf-Instanzen ohne parentScreen an (WidgetModel.qml,
+    // tempInstance) -- die duerfen den Eintrag nicht ueberschreiben.
+    onParentScreenChanged: root.instanzMelden()
+    Component.onCompleted: root.instanzMelden()
+    Component.onDestruction: {
+        if (PluginService.getGlobalVar("schalter", "instanz", null) === root)
+            PluginService.setGlobalVar("schalter", "instanz", null)
+    }
+
+    function instanzMelden() {
+        if (root.parentScreen?.name)
+            PluginService.setGlobalVar("schalter", "instanz", root)
+    }
+
     // Das VPN-Icon der gerade gebauten Pille. Nur dafuer da, dass der Weg
     // ueber IPC (und damit ein Tastenkuerzel) das Popout an derselben Stelle
     // oeffnet wie ein Mausklick. Je Schirm gibt es eine eigene Instanz dieses

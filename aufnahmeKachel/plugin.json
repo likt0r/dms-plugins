@@ -1,0 +1,12 @@
+{
+    "id": "aufnahmeKachel",
+    "name": "Bildschirmaufnahme (Kachel)",
+    "description": "Kachel im Control Center fuer die Bildschirmaufnahme der schalter-Gruppe: zeigt, ob aufgenommen wird, Klick oeffnet die Auswahl bzw. stoppt",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["control-center"],
+    "component": "./AufnahmeKachel.qml",
+    "icon": "screen_record",
+    "permissions": ["settings_read"]
+}
