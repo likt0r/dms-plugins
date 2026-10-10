@@ -34,8 +34,13 @@ PluginComponent {
 
     signal osdZeigen
 
-    // effectiveVisible setzt nur die Opazitaet auf 0, die Pille bliebe als
-    // Luecke stehen. Deshalb zusaetzlich die Pille selbst nullbreit machen.
+    // setVisibilityOverride faehrt die Pille ueber effectiveVisible auf
+    // Breite 0 (PluginComponent.qml:211-226, states + PropertyChanges). Die
+    // nullbreite Pille unten ist deshalb nicht noetig -- sie schadet nur
+    // nicht. Uebrig bleibt so oder so das Spacing der Sektion (~4 px), weil
+    // das Delegate in RightSection.qml:60 seine Sichtbarkeit an
+    // "active && widgetEnabled" haengt, nicht am Item. Ganz weg bekommt man
+    // ein Widget nur mit {"id": ..., "enabled": false} im Bar-Eintrag.
     onAktivChanged: {
         root.setVisibilityOverride(root.aktiv)
         if (root.zustandBekannt)
