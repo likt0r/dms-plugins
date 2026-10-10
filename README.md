@@ -26,8 +26,10 @@ platzieren.
 
 | Plugin | Typ | Zweck |
 |---|---|---|
+| [`bildschirme/`](bildschirme/) | widget | Bildschirmmodus umschalten wie GNOMEs Super+P: alle, nur extern, nur intern, spiegeln (ueber wl-mirror) -- dazu die DMS-Anzeigeprofile. Gedacht fuer die Anzeige-Sondertaste F7. |
+| [`flugmodus/`](flugmodus/) | widget | Flugzeug-Icon in der Bar, solange der Flugmodus laeuft -- sonst nichts; OSD beim Umschalten. Klick schaltet ihn aus. |
 | [`vpn/`](vpn/) | widget | **VPN Hub** (Id `vpnHub`): ein Icon für alle VPNs — NetworkManager-Profile und Proton VPN über die offizielle CLI; Popout mit Status, Traffic, Schaltern, Länderauswahl und Favoriten. Port von `likt0r.vpn`. |
-| [`voxtype/`](voxtype/) | widget | Diktat-Status in der Bar (voxtype); Klick: Aufnahme an/aus, Rechtsklick: Konfiguration. Ersatz für Omarchys `Dictation.qml`. |
+| [`voxtype/`](voxtype/) | widget | Diktat-Status in der Bar (voxtype) und als OSD: laufende Wellenform waehrend der Aufnahme, Spinner beim Transkribieren. Klick: Aufnahme an/aus, Rechtsklick: Konfiguration. Ersatz für Omarchys `Dictation.qml` und fuer voxtypes GTK4-Overlay. |
 
 ## Geplant (Portierung von Omarchy, siehe Umstiegsplan Phase 3)
 

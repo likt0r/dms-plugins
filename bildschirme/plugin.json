@@ -1,0 +1,14 @@
+{
+    "id": "bildschirme",
+    "name": "Bildschirme",
+    "description": "Bildschirmmodus umschalten wie in GNOME: alle, nur extern, nur intern, spiegeln -- dazu die DMS-Anzeigeprofile. Gedacht fuer die Anzeige-Sondertaste (ThinkPad F7)",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["display-mode"],
+    "component": "./BildschirmeWidget.qml",
+    "startupCheck": "./StartupCheck.qml",
+    "icon": "display_settings",
+    "dependencies": ["python3"],
+    "permissions": ["settings_read"]
+}
