@@ -56,6 +56,14 @@ PluginComponent {
 
     popoutWidth: 440
 
+    // Nur zeigen, wenn die Karte ueberhaupt etwas nuetzt: werktags bis 14 Uhr.
+    // Danach ist Mittag durch, am Wochenende hat die Kantine zu. Die Pille
+    // faellt dann auf Breite 0 (PluginComponent faehrt sie ueber
+    // effectiveVisible zusammen); uebrig bleibt das Spacing der Sektion.
+    // Das Popout bleibt per "dms ipc call warthemahl toggle" erreichbar.
+    visibilityCommand: "[ \"$(date +%u)\" -le 5 ] && [ \"$(date +%H)\" -lt 14 ]"
+    visibilityInterval: 600
+
     function refresh(force) {
         if (fetchProc.running) return
         root.now = new Date()

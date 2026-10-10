@@ -94,3 +94,10 @@ curl -sL https://warthemahl.de/speisekarte/ -o tests/fixtures/speisekarte.html
 
 MIT, siehe [LICENSE](LICENSE). Die Speisekarten-Inhalte selbst gehören
 WartheMahl und werden nur angezeigt, nicht mitgeliefert.
+
+## Wann die Pille zu sehen ist
+
+Nur werktags bis 14 Uhr (`visibilityCommand` im Widget, 10-Minuten-Takt).
+Danach ist Mittag durch, am Wochenende hat die Kantine zu -- ein Icon, das
+dann noch dasteht, ist nur Rauschen. Das Popout bleibt jederzeit per
+`dms ipc call warthemahl toggle` erreichbar.
