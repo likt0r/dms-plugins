@@ -1,19 +1,20 @@
 # Umschalter
 
-Eine Pille in der Bar-Mitte mit drei Umschaltern. Ersatz fuer Omarchys
+Eine Pille in der Bar-Mitte mit vier Umschaltern. Ersatz fuer Omarchys
 `omarchy.indicators`.
 
 | Zustand | Anzeige |
 |---|---|
 | nichts aktiv | nur ein gedimmter Anfasser (`...`) |
 | etwas aktiv | nur die aktiven Icons, in Akzentfarbe |
-| Zeiger darueber | alle drei, inaktive bei Deckkraft 0,45 |
+| Zeiger darueber | alle vier, inaktive bei Deckkraft 0,45 |
 
 | Umschalter | Icon | liest | Klick |
 |---|---|---|---|
 | Wachhalten | Kaffeetasse | `SessionService.idleInhibited` | `toggleIdleInhibit()` |
 | VPN | Schloss | `NetworkService.vpnConnected` | oeffnet das vpnHub-Popout |
 | Diktat | Mikrofon / Sanduhr | `$XDG_RUNTIME_DIR/voxtype/state` | `voxtype record toggle` |
+| Aufnahme | Bildschirm mit Punkt, rot + Laufzeit | `$XDG_RUNTIME_DIR/bildschirmaufnahme/state` | laeuft: stoppen, sonst HUD-Auswahl |
 
 VPN schaltet bewusst **nicht** selbst: welche der Verbindungen gemeint waere,
 ist nicht zu erraten. Der Klick oeffnet das Popout von `vpnHub`, dort stehen
@@ -34,12 +35,35 @@ zeigt denselben Zustand und kann mehr -- er zaehlt ungelesene Meldungen.
 
 Rechtsklick auf die Pille oeffnet das Control Center.
 
+## Bildschirmaufnahme
+
+Aufgenommen wird in `~/.local/bin/bildschirmaufnahme` (dotfiles-Repo,
+`localbin/`, gpu-screen-recorder). Ausgewaehlt wird im HUD unten am
+Bildschirm, gebaut wie die Bildschirmauswahl auf F7 (`bildschirme`):
+
+1. Modus: Bild, + Ton, + Mikro, + Mikro + Ton
+2. Bildschirm (der fokussierte) oder Bereich (slurp)
+
+- **F10** (`dms ipc call schalter aufnahme`): erster Druck oeffnet, jeder
+  weitere wandert eine Kachel weiter, nach 1,2 s ohne Druck gilt sie. F10 und
+  2,4 s warten heisst also: Bild, ganzer Bildschirm.
+- **Klick** aufs Aufnahme-Icon: dasselbe HUD ohne Timer, die Kacheln nehmen
+  Klicks an; ohne Wahl verschwindet es nach 8 s, Hover haelt es offen.
+- Waehrend der Aufnahme stoppen F10 und der Klick direkt. Danach kurz
+  "Aufnahme beendet", die Datei kommt als Benachrichtigung vom Skript.
+
+Den Zustand liest die Gruppe per `FileView` aus der Zustandsdatei des
+Skripts. Die muss beim Laden schon existieren, sonst meldet der Waechter
+nie etwas -- fehlt sie, legt das Plugin sie leer an und laedt neu.
+
 ## IPC
 
 ```
 dms ipc call schalter status                 # welche aktiv sind
-dms ipc call schalter toggle wach|vpn|diktat
-dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aus
+dms ipc call schalter toggle wach|vpn|diktat|aufnahme
+dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aufnahme|aus
+dms ipc call schalter aufnahme               # F10: HUD bzw. stoppen
+dms ipc call schalter osd aufnahme           # nur das HUD zeigen (8 s)
 ```
 
 `demo` taeuscht Zustaende nur fuer die Anzeige vor und schaltet nichts; nach

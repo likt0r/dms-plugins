@@ -32,6 +32,15 @@ import qs.Modules.Plugins
 // Ein kleines Anfasser-Icon bleibt stehen, wenn nichts aktiv ist -- sonst
 // gaebe es nichts zu hovern. Vorbild: hasNoVisibleIcons() in
 // ControlCenterButton.qml:743.
+//
+// Bildschirmaufnahme: Das Icon ist rot und zeigt die Laufzeit, solange
+// aufgenommen wird; ein Klick (oder F10) stoppt. Sonst oeffnet er die
+// Auswahl als HUD unten am Bildschirm, gebaut wie die Bildschirmauswahl auf
+// F7 (Plugin bildschirme): erst der Modus (Bild, + Ton, + Mikro, + beides),
+// dann ganzer Bildschirm oder Bereich. Auf F10 wandert jeder Druck eine
+// Kachel weiter, nach 1,2 s ohne Druck gilt sie; per Maus wird geklickt.
+// Aufgenommen wird in ~/.local/bin/bildschirmaufnahme (dotfiles-Repo,
+// localbin/), das auch den Zustand fuer dieses Icon schreibt.
 PluginComponent {
     id: root
 
@@ -42,7 +51,7 @@ PluginComponent {
     // "ruhe" (Nicht stoeren) steht bewusst NICHT hier: der notificationButton
     // rechts zeigt denselben Zustand und kann mehr -- er zaehlt ungelesene
     // Meldungen. Zwei Glocken in einer Leiste waeren eine zu viel.
-    readonly property var schalter: ["wach", "vpn", "diktat"]
+    readonly property var schalter: ["wach", "vpn", "diktat", "aufnahme"]
 
     property bool gruppeGehovert: false
 
@@ -81,6 +90,52 @@ PluginComponent {
     }
     property string diktatZustand: "idle"
 
+    // --- Bildschirmaufnahme ---------------------------------------------------
+    // Zustandsdatei des Skripts: leer = keine Aufnahme, sonst Startzeit
+    // (Epoche), Datei, PID je Zeile. FileView beobachtet nur eine Datei, die
+    // beim Laden schon existiert -- fehlt sie (frischer Login), legt
+    // aufnahmeDateiAnlegen sie leer an und laedt neu; danach greift der
+    // Waechter auch beim Leeren und Neuschreiben.
+    readonly property string aufnahmeOrdner: {
+        const xdg = Quickshell.env("XDG_RUNTIME_DIR")
+        return (xdg && xdg !== "" ? xdg : "/tmp") + "/bildschirmaufnahme"
+    }
+    readonly property string aufnahmePfad: root.aufnahmeOrdner + "/state"
+    property bool aufnahmeLaeuft: false
+    property real aufnahmeStart: 0
+    property real jetzt: Date.now() / 1000
+    property bool aufnahmeBekannt: false
+
+    readonly property string aufnahmeDauer: {
+        if (!root.aufnahmeLaeuft || root.aufnahmeStart <= 0)
+            return ""
+        const s = Math.max(0, Math.floor(root.jetzt - root.aufnahmeStart))
+        const m = Math.floor(s / 60)
+        return m + ":" + String(s % 60).padStart(2, "0")
+    }
+
+    readonly property var aufnahmeModi: [
+        { id: "bild", kurz: "Bild", label: "Bild", icon: "videocam" },
+        { id: "ton", kurz: "+ Ton", label: "Bild + Ton", icon: "volume_up" },
+        { id: "mikro", kurz: "+ Mikro", label: "Bild + Mikro", icon: "mic" },
+        { id: "beides", kurz: "+ Mikro + Ton", label: "Bild + Mikro + Ton", icon: "graphic_eq" }
+    ]
+    readonly property var aufnahmeBereiche: [
+        { id: "schirm", kurz: "Bildschirm", icon: "desktop_windows" },
+        { id: "bereich", kurz: "Bereich", icon: "crop_free" }
+    ]
+
+    // HUD: 0 = zu, 1 = Modus waehlen, 2 = Bildschirm/Bereich waehlen.
+    // hudMaus: per Klick geoeffnet -- dann kein Uebernahme-Timer, das HUD
+    // nimmt Klicks an und bleibt stehen, solange der Zeiger darauf ist.
+    property int hudSchritt: 0
+    property bool hudMaus: false
+    property int modusIndex: 0
+    property int bereichIndex: 0
+
+    signal osdZeigen
+    signal osdVerbergen
+
     readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
         root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
 
@@ -98,8 +153,17 @@ PluginComponent {
             return root.diktatZustand === "recording"
                 || root.diktatZustand === "streaming"
                 || root.diktatZustand === "transcribing"
+        case "aufnahme":
+            return root.aufnahmeLaeuft
         }
         return false
+    }
+
+    // Eine laufende Aufnahme soll auffallen -- rot statt Akzentfarbe.
+    function farbeFuer(id, aktiv) {
+        if (!aktiv)
+            return Theme.widgetTextColor
+        return id === "aufnahme" ? Theme.error : Theme.primary
     }
 
     function iconFuer(id) {
@@ -110,6 +174,8 @@ PluginComponent {
             return root.vpnZustand?.name || "vpn_lock"
         case "diktat":
             return root.diktatZustand === "transcribing" ? "hourglass_top" : "mic"
+        case "aufnahme":
+            return "screen_record"
         }
         return "help"
     }
@@ -127,7 +193,102 @@ PluginComponent {
         case "diktat":
             Quickshell.execDetached(["voxtype", "record", "toggle"])
             break
+        case "aufnahme":
+            root.aufnahmeKlick()
+            break
         }
+    }
+
+    // --- Bildschirmaufnahme: Auswahl und Steuerung ----------------------------
+
+    function aufnahmeSkript(args) {
+        Quickshell.execDetached(["sh", "-c",
+            "exec \"$HOME/.local/bin/bildschirmaufnahme\" \"$@\"", "sh"].concat(args))
+    }
+
+    function aufnahmeLesen(text) {
+        const zeilen = (text || "").trim().split("\n")
+        const start = parseFloat(zeilen[0])
+        const lief = root.aufnahmeLaeuft
+        root.aufnahmeLaeuft = zeilen.length >= 3 && start > 0
+        root.aufnahmeStart = root.aufnahmeLaeuft ? start : 0
+        root.jetzt = Date.now() / 1000
+        // Kurze Einzelanzeige beim Ende, aber nicht beim ersten Lesen nach
+        // dem Shell-Start.
+        if (root.aufnahmeBekannt && lief && !root.aufnahmeLaeuft) {
+            root.hudSchritt = 0
+            root.osdZeigen()
+        }
+        root.aufnahmeBekannt = true
+    }
+
+    function hudOeffnen(maus) {
+        root.hudMaus = maus
+        root.modusIndex = 0
+        root.bereichIndex = 0
+        root.hudSchritt = 1
+        root.osdZeigen()
+        if (maus)
+            uebernahme.stop()
+        else
+            uebernahme.restart()
+    }
+
+    function hudSchliessen() {
+        uebernahme.stop()
+        root.hudSchritt = 0
+        root.osdVerbergen()
+    }
+
+    // F10: laufende Aufnahme stoppen, sonst HUD oeffnen bzw. weiterwandern.
+    function aufnahmeTaste() {
+        if (root.aufnahmeLaeuft) {
+            root.hudSchritt = 0
+            root.aufnahmeSkript(["stop"])
+            return
+        }
+        if (root.hudSchritt === 0) {
+            root.hudOeffnen(false)
+            return
+        }
+        // Wer im per Klick geoeffneten HUD zur Taste greift, bekommt ab da
+        // das Tastenverhalten mit Timer.
+        root.hudMaus = false
+        if (root.hudSchritt === 1)
+            root.modusIndex = (root.modusIndex + 1) % root.aufnahmeModi.length
+        else
+            root.bereichIndex = (root.bereichIndex + 1) % root.aufnahmeBereiche.length
+        root.osdZeigen()
+        uebernahme.restart()
+    }
+
+    function aufnahmeKlick() {
+        if (root.aufnahmeLaeuft) {
+            root.hudSchritt = 0
+            root.aufnahmeSkript(["stop"])
+            return
+        }
+        if (root.hudSchritt !== 0 && root.hudMaus) {
+            root.hudSchliessen()
+            return
+        }
+        root.hudOeffnen(true)
+    }
+
+    function modusWaehlen(index) {
+        root.modusIndex = index
+        root.bereichIndex = 0
+        root.hudSchritt = 2
+        root.osdZeigen()
+        if (!root.hudMaus)
+            uebernahme.restart()
+    }
+
+    function aufnahmeStarten() {
+        const modus = root.aufnahmeModi[root.modusIndex].id
+        const bereich = root.aufnahmeBereiche[root.bereichIndex].id
+        root.hudSchliessen()
+        root.aufnahmeSkript(["start", modus, bereich])
     }
 
     // Nicht selbst schalten: welche der Verbindungen gemeint waere, ist nicht
@@ -160,6 +321,57 @@ PluginComponent {
     pillRightClickAction: () => popoutService?.toggleControlCenter()
 
     FileView {
+        id: aufnahmeDatei
+        path: root.aufnahmePfad
+        watchChanges: true
+        printErrors: false
+        onLoaded: root.aufnahmeLesen(text())
+        onLoadFailed: {
+            root.aufnahmeLesen("")
+            if (!aufnahmeAnlegen.running)
+                aufnahmeAnlegen.running = true
+        }
+        onFileChanged: reload()
+    }
+
+    Process {
+        id: aufnahmeAnlegen
+        command: ["sh", "-c", "mkdir -p \"$1\" && { [ -e \"$2\" ] || : > \"$2\"; }",
+                  "sh", root.aufnahmeOrdner, root.aufnahmePfad]
+        onExited: (code) => {
+            if (code === 0)
+                aufnahmeDatei.reload()
+        }
+    }
+
+    // Laufzeit im Bar-Icon; tickt nur waehrend einer Aufnahme.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.aufnahmeLaeuft
+        onTriggered: root.jetzt = Date.now() / 1000
+    }
+
+    // Nach dieser Pause ohne weiteren Druck gilt die markierte Kachel.
+    Timer {
+        id: uebernahme
+        interval: 1200
+        onTriggered: {
+            if (root.hudSchritt === 1)
+                root.modusWaehlen(root.modusIndex)
+            else if (root.hudSchritt === 2)
+                root.aufnahmeStarten()
+        }
+    }
+
+    // Beendet die Probe-Anzeige aus "osd aufnahme", ohne etwas zu starten.
+    Timer {
+        id: probeEnde
+        interval: 8000
+        onTriggered: root.hudSchliessen()
+    }
+
+    FileView {
         path: root.zustandsPfad
         watchChanges: true
         printErrors: false
@@ -175,7 +387,12 @@ PluginComponent {
     //                                         pruefen, ohne zu schalten)
     //   dms ipc call schalter demo alle|nichts|aus
     //   dms ipc call schalter toggle <id>     echt schalten (vpn oeffnet nur
-    //                                         das vpnHub-Popout)
+    //                                         das vpnHub-Popout, aufnahme das
+    //                                         HUD wie per Klick)
+    //   dms ipc call schalter aufnahme        Taste F10: Aufnahme stoppen bzw.
+    //                                         HUD oeffnen und weiterwandern
+    //   dms ipc call schalter osd aufnahme    nur das HUD zeigen (8 s), zum
+    //                                         Pruefen von Sitz und Aussehen
     // Nach "dms ipc call plugins reload schalter" haengt das Target an der
     // alten Instanz (quickshell#898), dann hilft nur ein Shell-Neustart.
     IpcHandler {
@@ -205,7 +422,7 @@ PluginComponent {
             } else if (root.schalter.indexOf(was) !== -1) {
                 root.demo = [was]
             } else {
-                return "unbekannt: " + was + " (wach|vpn|diktat|alle|nichts|aus)"
+                return "unbekannt: " + was + " (wach|vpn|diktat|aufnahme|alle|nichts|aus)"
             }
             demoEnde.restart()
             return "ok"
@@ -219,6 +436,19 @@ PluginComponent {
             root.schalten(id, null)
             return "ok"
         }
+
+        function aufnahme(): string {
+            root.aufnahmeTaste()
+            return root.aufnahmeLaeuft ? "stoppt" : "auswahl"
+        }
+
+        function osd(was: string): string {
+            if (was !== "aufnahme")
+                return "unbekannt: " + was + " (aufnahme)"
+            root.hudOeffnen(true)
+            probeEnde.restart()
+            return "ok"
+        }
     }
 
     // Ein vergessener Demo-Zustand soll nicht dauerhaft etwas vortaeuschen.
@@ -228,6 +458,204 @@ PluginComponent {
         onTriggered: {
             root.demo = []
             root.demoLeer = false
+        }
+    }
+
+    // --- HUD der Bildschirmaufnahme ------------------------------------------
+    // Wie in DMSShell.qml (und bildschirme): ein OSD pro Bildschirm ueber
+    // Variants. Ein einzelnes DankOSD mit modelData: root.parentScreen geht
+    // nicht -- parentScreen ist in Plugin-Widgets null, und ohne Screen bleibt
+    // das Fenster ohne Geometrie unsichtbar.
+    Variants {
+        model: SettingsData.getFilteredScreens("osd")
+
+        delegate: DankOSD {
+            id: osd
+
+            readonly property real kachelBreite: 88
+            readonly property real kachelHoehe: 62
+            readonly property real kopfHoehe: 20
+            readonly property bool auswahl: root.hudSchritt !== 0
+
+            // Beide Schritte gleich breit, damit das HUD beim Wechsel nicht
+            // springt; die zwei Bereichs-Kacheln stehen dann mittig.
+            osdWidth: osd.auswahl
+                ? Math.min(root.aufnahmeModi.length * kachelBreite + Theme.spacingS * 2,
+                           screenWidth - Theme.spacingM * 2)
+                : Math.min(Math.max(120, Theme.iconSize + beschriftung.width + Theme.spacingS * 4),
+                           screenWidth - Theme.spacingM * 2)
+            osdHeight: (osd.auswahl ? kopfHoehe + kachelHoehe : 40) + Theme.spacingS * 2
+            // Per Klick geoeffnet: lange stehen lassen, Hover haelt es offen
+            // (DankOSD.updateHoverState). Per Taste uebernimmt nach 1,2 s
+            // ohnehin der Timer, die 2 s sind nur die Notbremse.
+            autoHideInterval: root.hudMaus ? 8000 : 2000
+            enableMouseInteraction: osd.auswahl && root.hudMaus
+
+            Behavior on osdWidth {
+                enabled: osd.shouldBeVisible
+                NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+            }
+            Behavior on osdHeight {
+                enabled: osd.shouldBeVisible
+                NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+            }
+
+            Connections {
+                target: root
+                function onOsdZeigen() {
+                    osd.show()
+                }
+                function onOsdVerbergen() {
+                    osd.hide()
+                }
+            }
+
+            // Von selbst ausgeblendet (Zeit abgelaufen): die Auswahl ist dann
+            // verworfen, sonst wanderte der naechste F10-Druck in einem
+            // unsichtbaren HUD weiter.
+            onOsdHidden: if (root.hudSchritt !== 0 && !uebernahme.running)
+                root.hudSchritt = 0
+
+            TextMetrics {
+                id: beschriftung
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                font.family: Theme.fontFamily
+                text: "Aufnahme beendet"
+            }
+
+            content: Item {
+                id: inhalt
+
+                property int abstand: Theme.spacingS
+
+                anchors.centerIn: parent
+                width: parent.width - Theme.spacingS * 2
+                height: parent.height - Theme.spacingS * 2
+
+                // --- Auswahl: Kopfzeile, darunter die Kacheln des Schritts
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 0
+                    opacity: osd.auswahl ? 1 : 0
+                    visible: opacity > 0.01
+                    Behavior on opacity {
+                        NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+                    }
+
+                    StyledText {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        height: osd.kopfHoehe
+                        verticalAlignment: Text.AlignVCenter
+                        text: root.hudSchritt === 2
+                            ? root.aufnahmeModi[root.modusIndex].label + " · wo?"
+                            : "Bildschirmaufnahme"
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
+
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 0
+
+                        Repeater {
+                            model: root.hudSchritt === 2 ? root.aufnahmeBereiche : root.aufnahmeModi
+
+                            Item {
+                                id: kachel
+
+                                required property var modelData
+                                required property int index
+                                readonly property bool gewaehlt: kachel.index
+                                    === (root.hudSchritt === 2 ? root.bereichIndex : root.modusIndex)
+
+                                width: osd.kachelBreite
+                                height: osd.kachelHoehe
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width - 6
+                                    height: parent.height - 4
+                                    radius: Theme.cornerRadius
+                                    color: kachel.gewaehlt || klick.containsMouse
+                                        ? Theme.surfaceContainerHigh : "transparent"
+                                    border.color: kachel.gewaehlt ? Theme.primary : "transparent"
+                                    border.width: kachel.gewaehlt ? 1 : 0
+                                    Behavior on color { ColorAnimation { duration: Anims.durShort } }
+                                    Behavior on border.color { ColorAnimation { duration: Anims.durShort } }
+                                }
+
+                                Column {
+                                    anchors.centerIn: parent
+                                    spacing: 2
+
+                                    DankIcon {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        name: kachel.modelData.icon
+                                        size: Theme.iconSize
+                                        color: kachel.gewaehlt ? Theme.primary : Theme.surfaceText
+                                    }
+
+                                    StyledText {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: kachel.modelData.kurz
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: kachel.gewaehlt ? Theme.primary : Theme.surfaceVariantText
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: klick
+                                    anchors.fill: parent
+                                    enabled: root.hudMaus
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    // Hover meldet DankOSD, damit es nicht
+                                    // unter dem Zeiger ausblendet.
+                                    onContainsMouseChanged: osd.setChildHovered(containsMouse)
+                                    onClicked: {
+                                        if (root.hudSchritt === 1) {
+                                            root.modusWaehlen(kachel.index)
+                                        } else {
+                                            root.bereichIndex = kachel.index
+                                            root.aufnahmeStarten()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Einzelanzeige, wenn eine Aufnahme endet
+                Item {
+                    anchors.fill: parent
+                    opacity: osd.auswahl ? 0 : 1
+                    visible: opacity > 0.01
+                    Behavior on opacity {
+                        NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
+                    }
+
+                    DankIcon {
+                        x: inhalt.abstand
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "stop_circle"
+                        size: Theme.iconSize
+                        color: Theme.primary
+                    }
+
+                    StyledText {
+                        x: inhalt.abstand * 2 + Theme.iconSize
+                        width: parent.width - Theme.iconSize - inhalt.abstand * 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Aufnahme beendet"
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Medium
+                        color: Theme.surfaceText
+                        elide: Text.ElideRight
+                    }
+                }
+            }
         }
     }
 
@@ -283,7 +711,14 @@ PluginComponent {
                         // Platz UND Abstand raus.
                         readonly property bool gezeigt: platz.aktiv || root.gruppeGehovert
 
-                        width: platz.gezeigt ? root.barIconPx : 0
+                        // Die Aufnahme zeigt neben dem Icon ihre Laufzeit,
+                        // der Platz waechst dann mit.
+                        readonly property string zusatz: platz.modelData === "aufnahme"
+                            ? root.aufnahmeDauer : ""
+
+                        width: platz.gezeigt
+                            ? root.barIconPx + (platz.zusatz !== "" ? dauer.implicitWidth + Theme.spacingXS : 0)
+                            : 0
                         height: root.barIconPx
                         visible: platz.gezeigt
 
@@ -302,12 +737,24 @@ PluginComponent {
                         Component.onDestruction: if (root.vpnIcon === platz)
                             root.vpnIcon = null
 
+                        StyledText {
+                            id: dauer
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: platz.zusatz !== ""
+                            text: platz.zusatz
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.features: { "tnum": 1 }
+                            color: Theme.error
+                        }
+
                         DankIcon {
-                            anchors.centerIn: parent
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
                             name: root.iconFuer(platz.modelData)
                             filled: platz.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
                             size: root.barIconPx
-                            color: platz.aktiv ? Theme.primary : Theme.widgetTextColor
+                            color: root.farbeFuer(platz.modelData, platz.aktiv)
                             // 0.45 fuer aufgedeckt-inaktiv ist aus Omarchys
                             // Indicators uebernommen -- sichtbar genug zum
                             // Treffen, leise genug, um nicht nach Zustand
@@ -414,7 +861,7 @@ PluginComponent {
                             name: root.iconFuer(platzV.modelData)
                             filled: platzV.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
                             size: root.barIconPx
-                            color: platzV.aktiv ? Theme.primary : Theme.widgetTextColor
+                            color: root.farbeFuer(platzV.modelData, platzV.aktiv)
                             opacity: platzV.aktiv ? 1 : 0.45
                             Behavior on opacity {
                                 NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
