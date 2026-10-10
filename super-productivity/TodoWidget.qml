@@ -2,24 +2,23 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Common
-import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
-// Todos aus Super Productivity: Pille in der Bar, Klick klappt ein Panel von
-// der Bildschirmkante herein (DankSlideout, wie das Notepad von DMS). Dort
+// Todos aus Super Productivity: Pille in der Bar, Klick (oder Super+M) klappt
+// darunter ein Popout von oben auf, wie bei Benachrichtigungen oder WLAN. Dort
 // werden Tasks angelegt, abgehakt, umbenannt, geloescht und die
 // Zeiterfassung gestartet.
 //
 // Die Daten gehoeren Super Productivity: das Plugin spricht nur mit dessen
 // lokaler REST-API (127.0.0.1:3876) ueber bin/sp-api und haelt nichts
 // selbst vor. Der Sync zu OpenCloud (WebDAV) ist Sache der App. Laeuft sie
-// nicht, zeigt das Panel einen Startknopf statt einer leeren Liste.
+// nicht, zeigt das Popout einen Startknopf statt einer leeren Liste.
 //
 // Die API kennt keine Push-Nachrichten: das Plugin fragt nach, alle
-// refreshInterval Sekunden im Hintergrund und alle 10 s, solange das Panel
-// offen ist. Aenderungen aus dem Panel erscheinen sofort (optimistisch) und
+// refreshInterval Sekunden im Hintergrund und alle 10 s, solange das Popout
+// offen ist. Aenderungen aus dem Popout erscheinen sofort (optimistisch) und
 // werden danach mit dem echten Stand abgeglichen.
 PluginComponent {
     id: root
@@ -30,7 +29,6 @@ PluginComponent {
     readonly property bool showCurrentInBar: pluginData?.showCurrentInBar !== false
     readonly property string startFilter: String(pluginData?.startFilter ?? "today")
     readonly property string defaultProject: String(pluginData?.defaultProject ?? "")
-    readonly property string slideEdge: pluginData?.slideEdge === "left" ? "left" : "right"
     readonly property real panelWidth: Math.max(320, Number(pluginData?.panelWidth ?? 420))
     readonly property int refreshInterval: Math.max(15, Number(pluginData?.refreshInterval ?? 60))
     readonly property string launchCommand: String(pluginData?.launchCommand
@@ -243,33 +241,14 @@ PluginComponent {
         launchRetry.restart()
     }
 
-    // parentScreen ist in Plugin-Widgets null, das Slideout bekaeme damit keine
-    // Geometrie. Deshalb waehlt jedes Oeffnen den Schirm selbst: per Klick den
-    // der Pille, per IPC den fokussierten, notfalls den ersten.
-    property var slideScreen: null
-
-    function screenByName(name) {
-        var list = Quickshell.screens
-        for (var i = 0; i < list.length; i++)
-            if (list[i].name === name) return list[i]
-        return null
-    }
-
-    function toggle(screenName) {
-        if (slideout.isVisible) {
-            slideout.hide()
-            return
-        }
-        root.slideScreen = root.screenByName(screenName || "")
-            || root.screenByName(BarWidgetService.getFocusedScreenName() || "")
-            || Quickshell.screens[0]
-        Qt.callLater(() => slideout.show())
+    function toggle() {
+        root.triggerPopout()
     }
 
     // --------------------------------------------------------------- Zeitgeber
 
     Timer {
-        interval: slideout.isVisible ? 10000 : root.refreshInterval * 1000
+        interval: root.popoutOpen ? 10000 : root.refreshInterval * 1000
         running: true
         repeat: true
         onTriggered: root.refresh()
@@ -314,7 +293,6 @@ PluginComponent {
     readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
         root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
 
-    pillClickAction: (x, y, width, section, screen) => root.toggle(screen ? screen.name : "")
     pillRightClickAction: () => root.launchApp()
 
     horizontalBarPill: Component {
@@ -370,94 +348,149 @@ PluginComponent {
         }
     }
 
-    // ------------------------------------------------------------------ Panel
+    // ------------------------------------------------------------------ Popout
 
-    DankSlideout {
-        id: slideout
-        modelData: root.slideScreen
-        title: "Todos"
-        slideoutWidth: root.panelWidth
-        slideEdge: root.slideEdge
-        content: Component {
-            TodoPanel {}
+    // Das gewoehnliche Plugin-Popout: klappt unter der Pille von oben auf wie
+    // Benachrichtigungen oder WLAN und schliesst sich, sobald ein anderes
+    // Popout aufgeht -- das regelt DMS (PopoutManager), nicht das Plugin.
+    popoutWidth: root.panelWidth
+
+    // Offen oder zu, fuer den schnelleren Abgleich und das Zuruecksetzen.
+    property bool popoutOpen: false
+
+    popoutContent: Component {
+        PopoutComponent {
+            id: popout
+
+            headerText: "Todos"
+            detailsText: !root.reachable ? "Super Productivity nicht erreichbar"
+                : root.currentTask ? "▶ " + Model.truncate(root.currentTask.title, 48)
+                : Model.countOpen(root.tasks, Model.FILTER_TODAY, root.now) + " heute · "
+                    + Model.countOpen(root.tasks, Model.FILTER_ALL, root.now) + " offen"
+            showCloseButton: true
+
+            Component.onCompleted: root.opened(popout)
+            Connections {
+                target: popout.parentPopout
+                function onShouldBeVisibleChanged() {
+                    if (popout.parentPopout.shouldBeVisible) root.opened(popout)
+                    else root.closed()
+                }
+            }
+
+            headerActions: Component {
+                Row {
+                    spacing: Theme.spacingXS
+
+                    DankActionButton {
+                        iconName: "refresh"
+                        tooltipText: "Neu laden"
+                        enabled: !root.refreshing
+                        onClicked: root.refresh()
+                    }
+
+                    DankActionButton {
+                        iconName: "open_in_new"
+                        tooltipText: "Super Productivity öffnen"
+                        onClicked: root.launchApp()
+                    }
+                }
+            }
+
+            TodoPanel {
+                width: parent.width
+                popout: popout
+            }
         }
-        onRevealed: root.refresh()
-        onAboutToHide: {
-            root.editingId = ""
-            root.armedDeleteId = ""
-        }
+    }
+
+    signal focusInput
+
+    function opened(popout) {
+        root.popoutOpen = true
+        root.refresh()
+        // Das Eingabefeld bekommt den Fokus, sobald das Popout steht, damit
+        // man nach Super+M direkt lostippen kann.
+        Qt.callLater(() => root.focusInput())
+    }
+
+    function closed() {
+        root.popoutOpen = false
+        root.editingId = ""
+        root.armedDeleteId = ""
     }
 
     // Inline-Komponenten gehoeren in das Wurzelobjekt der Datei, nicht in ein
     // verschachteltes Component -- dort werden sie klaglos ignoriert.
 
-    component TodoPanel: Item {
+    component TodoPanel: Column {
         id: panel
+        property var popout: null
+        spacing: Theme.spacingM
 
-        // Das Eingabefeld bekommt den Fokus, sobald das Panel aufgeht, damit
-        // man nach dem Tastenkuerzel direkt lostippen kann.
+        // Hoechstens so hoch, dass das Popout nicht ueber den Schirm waechst;
+        // darunter waechst die Liste mit ihrem Inhalt.
+        readonly property real maxListHeight: 460
+
+        function close() {
+            if (panel.popout && panel.popout.closePopout) panel.popout.closePopout()
+        }
+
         Connections {
-            target: slideout
-            function onRevealed() {
+            target: root
+            function onFocusInput() {
                 newTask.forceActiveFocus()
             }
         }
-        Component.onCompleted: newTask.forceActiveFocus()
 
-        Keys.onEscapePressed: slideout.hide()
+        Keys.onEscapePressed: panel.close()
 
-        Column {
-            id: top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            spacing: Theme.spacingM
-
-            DankFilterChips {
-                width: parent.width
-                model: root.chips
-                showCheck: false
-                chipHeight: 28
-                currentIndex: {
-                    for (var i = 0; i < root.chips.length; i++)
-                        if (root.chips[i].value === root.effectiveFilter) return i
-                    return 0
-                }
-                onSelectionChanged: index => {
-                    root.filter = root.chips[index].value
-                    newTask.forceActiveFocus()
-                }
+        DankFilterChips {
+            width: parent.width
+            visible: root.reachable
+            model: root.chips
+            showCheck: false
+            chipHeight: 28
+            currentIndex: {
+                for (var i = 0; i < root.chips.length; i++)
+                    if (root.chips[i].value === root.effectiveFilter) return i
+                return 0
             }
-
-            DankTextField {
-                id: newTask
-                width: parent.width
-                enabled: root.reachable
-                leftIconName: "add"
-                placeholderText: "Neuer Task → " + root.targetLabel
-                hidePlaceholderOnFocus: false
-                onAccepted: {
-                    if (root.addTask(text)) newTask.clear()
-                }
-                Keys.onEscapePressed: slideout.hide()
+            onSelectionChanged: index => {
+                root.filter = root.chips[index].value
+                newTask.forceActiveFocus()
             }
+        }
 
-            StyledText {
-                visible: root.actionError !== ""
-                width: parent.width
-                text: root.actionError
-                color: Theme.error
-                font.pixelSize: Theme.fontSizeSmall
-                wrapMode: Text.WordWrap
+        DankTextField {
+            id: newTask
+            width: parent.width
+            visible: root.reachable
+            leftIconName: "add"
+            placeholderText: "Neuer Task → " + root.targetLabel
+            hidePlaceholderOnFocus: false
+            onAccepted: {
+                if (root.addTask(text)) newTask.clear()
             }
+            Keys.onEscapePressed: panel.close()
+        }
+
+        StyledText {
+            visible: root.actionError !== ""
+            width: parent.width
+            text: root.actionError
+            color: Theme.error
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.WordWrap
         }
 
         // ------------------------------------------------ SP nicht erreichbar
 
         Column {
             visible: !root.reachable
-            anchors.centerIn: parent
-            width: parent.width - Theme.spacingL * 2
+            width: parent.width
+            topPadding: Theme.spacingL
+            bottomPadding: Theme.spacingL
             spacing: Theme.spacingM
 
             DankIcon {
@@ -499,12 +532,8 @@ PluginComponent {
         ListView {
             id: list
             visible: root.reachable
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: top.bottom
-            anchors.topMargin: Theme.spacingM
-            anchors.bottom: footer.top
-            anchors.bottomMargin: Theme.spacingS
+            width: parent.width
+            height: count === 0 ? 48 : Math.min(contentHeight, panel.maxListHeight)
             clip: true
             spacing: 2
             boundsBehavior: Flickable.StopAtBounds
@@ -539,41 +568,6 @@ PluginComponent {
         Component {
             id: taskRow
             TaskRow {}
-        }
-
-        // ------------------------------------------------------------- Fuss
-
-        Row {
-            id: footer
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            spacing: Theme.spacingXS
-            layoutDirection: Qt.RightToLeft
-
-            DankActionButton {
-                iconName: "open_in_new"
-                tooltipText: "Super Productivity öffnen"
-                onClicked: root.launchApp()
-            }
-
-            DankActionButton {
-                iconName: "refresh"
-                tooltipText: "Neu laden"
-                enabled: !root.refreshing
-                onClicked: root.refresh()
-            }
-
-            StyledText {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.currentTask !== null
-                width: footer.width - 2 * 32 - 2 * footer.spacing
-                horizontalAlignment: Text.AlignLeft
-                elide: Text.ElideRight
-                text: root.currentTask ? "▶ " + root.currentTask.title : ""
-                color: Theme.primary
-                font.pixelSize: Theme.fontSizeSmall
-            }
         }
     }
 

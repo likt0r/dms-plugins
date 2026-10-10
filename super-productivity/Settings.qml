@@ -43,20 +43,9 @@ PluginSettings {
         defaultValue: ""
     }
 
-    SelectionSetting {
-        settingKey: "slideEdge"
-        label: "Panel-Seite"
-        description: "Von welcher Bildschirmkante das Panel hereinklappt"
-        options: [
-            { label: "Rechts", value: "right" },
-            { label: "Links", value: "left" }
-        ]
-        defaultValue: "right"
-    }
-
     SliderSetting {
         settingKey: "panelWidth"
-        label: "Panel-Breite"
+        label: "Popout-Breite"
         defaultValue: 420
         minimum: 320
         maximum: 720
@@ -66,7 +55,7 @@ PluginSettings {
     SliderSetting {
         settingKey: "refreshInterval"
         label: "Abgleich im Hintergrund"
-        description: "Wie oft die Zahl in der Bar nachgezogen wird, solange das Panel zu ist; offen sind es 10 s"
+        description: "Wie oft die Zahl in der Bar nachgezogen wird, solange das Popout zu ist; offen sind es 10 s"
         defaultValue: 60
         minimum: 15
         maximum: 600

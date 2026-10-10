@@ -27,7 +27,7 @@ platzieren.
 | Plugin | Typ | Zweck |
 |---|---|---|
 | [`voxtype/`](voxtype/) | widget | Diktat-Status in der Bar (voxtype); Klick: Aufnahme an/aus, Rechtsklick: Konfiguration. Ersatz für Omarchys `Dictation.qml`. |
-| [`super-productivity/`](super-productivity/) | widget | Todos aus Super Productivity (lokale REST-API): Zahl offener Tasks in der Bar, Klick klappt ein Panel von der Seite zum Anlegen und Abhaken auf. |
+| [`super-productivity/`](super-productivity/) | widget | Todos aus Super Productivity (lokale REST-API): Zahl offener Tasks in der Bar, Klick oder Super+M klappt ein Popout zum Anlegen und Abhaken auf. |
 
 ## Geplant (Portierung von Omarchy, siehe Umstiegsplan Phase 3)
 

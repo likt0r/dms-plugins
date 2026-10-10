@@ -1,9 +1,11 @@
 # Todos (Super Productivity)
 
 Todos in der DankMaterialShell-Bar, mit [Super Productivity](https://super-productivity.com)
-als Backend. Die Pille zeigt, wie viel heute ansteht. Ein Klick klappt von der
-Bildschirmkante ein Panel herein (wie das Notepad von DMS), in dem man Tasks
-anlegt und abhakt.
+als Backend. Die Pille zeigt, wie viel heute ansteht. Ein Klick oder Super+M
+klappt darunter ein Popout von oben auf, wie bei Benachrichtigungen oder WLAN.
+Dort legt man Tasks an und hakt sie ab. Geht ein anderes Popout auf
+(Kontrollzentrum, WLAN, Benachrichtigungen …), schließt sich das Todo-Popout
+und umgekehrt. Das regelt DMS selbst.
 
 Die Daten bleiben in Super Productivity. Das Plugin spricht nur mit dessen
 **lokaler REST-API** und speichert selbst nichts. Den Sync (bei mir per
@@ -30,10 +32,12 @@ Start kennt SP 19 nicht.
 
 **Bar:** Das Icon zeigt die Zahl offener Tasks, je nach Einstellung für heute
 (fällig und überfällig) oder alle. Läuft die Zeiterfassung, wird das Icon zur
-Uhr, und der Task steht daneben. Ein **Klick** öffnet und schließt das Panel
-auf dem Bildschirm der Pille, ein **Rechtsklick** holt SP nach vorn.
+Uhr, und der Task steht daneben. Ein **Klick** (oder **Super+M**, siehe
+`niri/config.kdl` im dotfiles-Repo) öffnet und schließt das Popout, ein
+**Rechtsklick** holt SP nach vorn. Im Kopf des Popouts stehen die Zähler
+bzw. der laufende Task sowie Knöpfe für Neu laden und SP öffnen.
 
-**Panel:**
+**Popout:**
 
 - Chips oben: *Heute*, *Alle* und je ein Chip pro Projekt, jeweils mit der
   Zahl offener Tasks.
@@ -52,22 +56,22 @@ auf dem Bildschirm der Pille, ein **Rechtsklick** holt SP nach vorn.
   Reihenfolge wie in SP. Unteraufgaben stehen eingerückt darunter.
 - *Erledigt (n)* am Ende klappt die erledigten Tasks auf. Unter *Heute* sind
   das die heute erledigten.
-- Läuft SP nicht, zeigt das Panel einen Startknopf statt der Liste.
+- Läuft SP nicht, zeigt das Popout einen Startknopf statt der Liste.
 
-Esc schließt das Panel. Das Eingabefeld hat beim Öffnen den Fokus, man kann
+Esc schließt das Popout. Das Eingabefeld hat beim Öffnen den Fokus, man kann
 also direkt lostippen.
 
 ## IPC
 
 ```sh
-dms ipc call superProductivity toggle        # Panel auf/zu (fokussierter Schirm)
+dms ipc call superProductivity toggle        # Popout auf/zu (an der Pille)
 dms ipc call superProductivity add "Milch"   # Task im aktuellen Filter anlegen
 dms ipc call superProductivity refresh
 dms ipc call superProductivity status        # "2 heute, 11 offen, läuft: …"
 ```
 
-Als Tastenkürzel in `niri/config.kdl` zum Beispiel:
-`Mod+T { spawn "dms" "ipc" "call" "superProductivity" "toggle"; }`.
+Das Tastenkürzel in `niri/config.kdl`:
+`Mod+M { spawn "dms" "ipc" "call" "superProductivity" "toggle"; }`.
 
 Für den IPC gelten zwei Fallen wie bei den anderen Plugins:
 
@@ -80,7 +84,7 @@ Für den IPC gelten zwei Fallen wie bei den anderen Plugins:
 Die API kennt keine Push-Nachrichten. Das Plugin fragt deshalb bei SP nach:
 
 - alle *Abgleich im Hintergrund* Sekunden (Standard 60),
-- alle 10 s, solange das Panel offen ist,
+- alle 10 s, solange das Popout offen ist,
 - bei jedem Öffnen.
 
 Eigene Änderungen erscheinen sofort, danach gleicht das Plugin mit dem
@@ -90,7 +94,7 @@ das Eingabefeld nicht wegwirft.
 ## Aufbau
 
 ```
-TodoWidget.qml   Pille, Slideout (DankSlideout), Anfragen, IPC
+TodoWidget.qml   Pille, Popout, Anfragen, IPC
 Model.js         Datenlogik: Heute/überfällig, Gruppierung, Chips, POST-Bodies
 Settings.qml     Einstellungen
 bin/sp-api       ein API-Aufruf: sp-api METHOD PFAD [JSON]
