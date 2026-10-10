@@ -123,7 +123,7 @@ PluginComponent {
                     if (root.ausDerAuswahl)
                         root.ausDerAuswahl = false
                     else
-                        root.osdZeigen()
+                        root.zeigen()
                 }
                 root.letzterModus = neu.modus
             }
@@ -150,10 +150,28 @@ PluginComponent {
 
     // Eine Stufe weiter, aber nur ueber das, was gerade moeglich ist: ohne
     // zweiten Schirm bleibt genau "intern" uebrig, dann dreht sich nichts.
+    // Kurze Meldung im eigenen HUD statt ToastService.showWarning: der Toast
+    // ist gelb (Theme.warning) und faellt aus dem Farbschema; hier steht sie
+    // an derselben Stelle wie die Auswahl, Icon in Theme.primary.
+    property string hinweis: ""
+
+    function zeigen() {
+        root.hinweis = ""
+        root.osdZeigen()
+    }
+
+    function hinweisZeigen(text) {
+        uebernahme.stop()
+        root.auswahlOffen = false
+        root.auswahlManuell = false
+        root.hinweis = text
+        root.osdZeigen()
+    }
+
     function weiter() {
         const frei = root.modi.filter(m => m.frei)
         if (frei.length < 2) {
-            ToastService?.showWarning("Kein externer Bildschirm angeschlossen")
+            root.hinweisZeigen("Kein externer Bildschirm")
             return
         }
         const i = frei.findIndex(m => m.id === root.modus)
@@ -163,7 +181,7 @@ PluginComponent {
     function tasteGedrueckt() {
         const frei = root.freieModi
         if (frei.length < 2) {
-            ToastService?.showWarning("Kein externer Bildschirm angeschlossen")
+            root.hinweisZeigen("Kein externer Bildschirm")
             return
         }
         root.auswahlManuell = false
@@ -174,7 +192,7 @@ PluginComponent {
         } else {
             root.auswahlIndex = (root.auswahlIndex + 1) % frei.length
         }
-        root.osdZeigen()
+        root.zeigen()
         uebernahme.restart()
     }
 
@@ -201,7 +219,7 @@ PluginComponent {
             probeEnde.stop()
             if (anzahl > 0)
                 root.auswahlIndex = (root.auswahlIndex + d + anzahl) % anzahl
-            root.osdZeigen()
+            root.zeigen()
         }
         switch (taste) {
         case Qt.Key_Left:
@@ -306,12 +324,12 @@ PluginComponent {
             if (was === "auswahl") {
                 root.auswahlOffen = true
                 root.auswahlIndex = 0
-                root.osdZeigen()
+                root.zeigen()
                 probeEnde.restart()
                 return "ok"
             }
             root.auswahlOffen = false
-            root.osdZeigen()
+            root.zeigen()
             return "ok"
         }
     }
@@ -428,7 +446,7 @@ PluginComponent {
                 font.pixelSize: Theme.fontSizeMedium
                 font.weight: Font.Medium
                 font.family: Theme.fontFamily
-                text: "Alle Bildschirme"
+                text: root.hinweis !== "" ? root.hinweis : "Alle Bildschirme"
             }
 
             content: Item {
@@ -529,7 +547,7 @@ PluginComponent {
                     DankIcon {
                         x: inhalt.abstand
                         anchors.verticalCenter: parent.verticalCenter
-                        name: root.aktiverModus.icon
+                        name: root.hinweis !== "" ? "desktop_access_disabled" : root.aktiverModus.icon
                         size: Theme.iconSize
                         color: Theme.primary
                     }
@@ -538,7 +556,7 @@ PluginComponent {
                         x: inhalt.abstand * 2 + Theme.iconSize
                         width: parent.width - Theme.iconSize - inhalt.abstand * 3
                         anchors.verticalCenter: parent.verticalCenter
-                        text: root.modusLabel
+                        text: root.hinweis !== "" ? root.hinweis : root.modusLabel
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Font.Medium
                         color: Theme.surfaceText
