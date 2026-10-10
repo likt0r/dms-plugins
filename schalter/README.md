@@ -57,6 +57,10 @@ Bildschirm, gebaut wie die Bildschirmauswahl auf F7 (`bildschirme`):
   2,4 s warten heisst also: Bild, ganzer Bildschirm.
 - **Klick** aufs Aufnahme-Icon: dasselbe HUD ohne Timer, die Kacheln nehmen
   Klicks an; ohne Wahl verschwindet es nach 8 s, Hover haelt es offen.
+- **Tastatur**, solange das HUD offen ist: ←/→ (auch ↑/↓, Tab) waehlen und
+  halten den Timer an, Enter uebernimmt, Backspace geht von Schritt 2 zurueck
+  zum Modus, Esc bricht ab. Das HUD hat dafuer den Tastaturfokus, nur auf dem
+  Schirm mit Fokus.
 - Waehrend der Aufnahme stoppen F10 und der Klick direkt. Danach kurz
   "Aufnahme beendet", die Datei kommt als Benachrichtigung vom Skript.
 

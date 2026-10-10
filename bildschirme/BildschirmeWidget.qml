@@ -1,7 +1,9 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Common
+import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
@@ -11,7 +13,10 @@ import qs.Modules.Plugins
 //   dms ipc call bildschirme taste
 // Ein Druck oeffnet das Popout, jeder weitere schaltet eine Stufe weiter --
 // das Popout zeigt dabei live, wo man steht. Esc oder Klick daneben schliesst.
-// Pfeiltasten gibt es nicht: DMS-Popouts haben keinen KeyCatcher.
+// Im HUD gehen auch Pfeiltasten (waehlen, halten den Timer an), Enter
+// (uebernehmen) und Esc (abbrechen) -- das HUD hat dafuer, solange es offen
+// ist, den Tastaturfokus. Im Popout nicht: DMS-Popouts haben keinen
+// KeyCatcher.
 //
 // Geschaltet wird nicht hier, sondern in ~/.local/bin/monitor-modus
 // (dotfiles-Repo, localbin/). Dort steht auch, warum Spiegeln ueber wl-mirror
@@ -84,6 +89,8 @@ PluginComponent {
     // kurzer Pause wird uebernommen. Deshalb kein Popout mehr auf F7 -- das
     // bleibt auf dem Klick aufs Bar-Icon.
     property bool auswahlOffen: false
+    // Mit Pfeiltasten angefasst: kein Uebernahme-Timer mehr, es gilt Enter.
+    property bool auswahlManuell: false
     property int auswahlIndex: 0
     // Merker, damit die vom HUD selbst ausgeloeste Moduswechsel-Meldung nicht
     // direkt hinterher nochmal als Einzelanzeige aufpoppt.
@@ -159,6 +166,7 @@ PluginComponent {
             ToastService?.showWarning("Kein externer Bildschirm angeschlossen")
             return
         }
+        root.auswahlManuell = false
         if (!root.auswahlOffen) {
             root.auswahlOffen = true
             const i = frei.findIndex(m => m.id === root.modus)
@@ -168,6 +176,60 @@ PluginComponent {
         }
         root.osdZeigen()
         uebernahme.restart()
+    }
+
+    function auswahlUebernehmen() {
+        const ziel = root.freieModi[root.auswahlIndex]
+        root.auswahlOffen = false
+        root.auswahlManuell = false
+        if (ziel && ziel.id !== root.modus) {
+            root.ausDerAuswahl = true
+            root.setzen(ziel.id)
+        }
+        root.osdVerbergen()
+    }
+
+    // Tastatur im offenen HUD: Pfeile waehlen, Enter uebernimmt, Esc bricht
+    // ab, ohne etwas zu schalten.
+    function auswahlTaste(taste) {
+        if (!root.auswahlOffen)
+            return false
+        const anzahl = root.freieModi.length
+        const schritt = (d) => {
+            root.auswahlManuell = true
+            uebernahme.stop()
+            probeEnde.stop()
+            if (anzahl > 0)
+                root.auswahlIndex = (root.auswahlIndex + d + anzahl) % anzahl
+            root.osdZeigen()
+        }
+        switch (taste) {
+        case Qt.Key_Left:
+        case Qt.Key_Up:
+        case Qt.Key_Backtab:
+            schritt(-1)
+            return true
+        case Qt.Key_Right:
+        case Qt.Key_Down:
+        case Qt.Key_Tab:
+            schritt(1)
+            return true
+        case Qt.Key_Return:
+        case Qt.Key_Enter:
+        case Qt.Key_Space:
+            uebernahme.stop()
+            probeEnde.stop()
+            root.auswahlUebernehmen()
+            return true
+        case Qt.Key_Escape:
+            uebernahme.stop()
+            probeEnde.stop()
+            root.auswahlOffen = false
+            root.auswahlManuell = false
+            root.osdVerbergen()
+            return true
+        }
+        return false
     }
 
     function einstellungenOeffnen() {
@@ -285,15 +347,7 @@ PluginComponent {
     Timer {
         id: uebernahme
         interval: 1200
-        onTriggered: {
-            const ziel = root.freieModi[root.auswahlIndex]
-            root.auswahlOffen = false
-            if (ziel && ziel.id !== root.modus) {
-                root.ausDerAuswahl = true
-                root.setzen(ziel.id)
-            }
-            root.osdVerbergen()
-        }
+        onTriggered: root.auswahlUebernehmen()
     }
 
     Timer {
@@ -329,8 +383,22 @@ PluginComponent {
                 : Math.min(Math.max(120, Theme.iconSize + beschriftung.width + Theme.spacingS * 4),
                            screenWidth - Theme.spacingM * 2)
             osdHeight: (root.auswahlOffen ? 62 : 40) + Theme.spacingS * 2
-            autoHideInterval: 2000
+            autoHideInterval: root.auswahlManuell ? 8000 : 2000
             enableMouseInteraction: false
+
+            // Tastaturfokus nur, solange gewaehlt wird, und nur auf dem
+            // Schirm mit Fokus (zwei exklusive Fenster stritten sich sonst).
+            // KeyboardFocus.keyboardFocus ist DMS' eigene Regel.
+            readonly property bool tastenFokus: root.auswahlOffen
+                && (!NiriService.currentOutput || osd.screen?.name === NiriService.currentOutput)
+            WlrLayershell.keyboardFocus: KeyboardFocus.keyboardFocus(osd.tastenFokus, null)
+
+            // Von selbst ausgeblendet (8 s ohne Taste): Auswahl verwerfen,
+            // sonst wanderte der naechste F7-Druck in einem unsichtbaren HUD.
+            onOsdHidden: if (root.auswahlOffen && !uebernahme.running) {
+                root.auswahlOffen = false
+                root.auswahlManuell = false
+            }
 
             // Nur animieren, solange das OSD schon steht -- sonst geht es beim
             // Oeffnen in der falschen Groesse auf und waechst sichtbar nach.
@@ -371,6 +439,21 @@ PluginComponent {
                 anchors.centerIn: parent
                 width: parent.width - Theme.spacingS * 2
                 height: parent.height - Theme.spacingS * 2
+
+                focus: true
+                Keys.onPressed: (ereignis) => {
+                    if (root.auswahlTaste(ereignis.key))
+                        ereignis.accepted = true
+                }
+                // Der Inhalt sitzt in einem Loader, der den Fokus nicht von
+                // selbst weitergibt -- also bei jedem Zeigen holen.
+                Component.onCompleted: inhalt.forceActiveFocus()
+                Connections {
+                    target: root
+                    function onOsdZeigen() {
+                        inhalt.forceActiveFocus()
+                    }
+                }
 
                 // --- Auswahl: alle Modi nebeneinander, der gewaehlte markiert
                 Row {

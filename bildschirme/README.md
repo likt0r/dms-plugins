@@ -20,8 +20,12 @@ alle Modi nebeneinander, der gewaehlte gerahmt, nicht moegliche blass. Das ist
 GNOMEs Super+P nachempfunden. Das Popout mit den Anzeigeprofilen bleibt am
 Bar-Icon -- und das Bar-Icon erscheint nur bei angeschlossenem zweitem Schirm.
 
-Pfeiltasten gibt es nicht — DMS-Popouts haben keinen KeyCatcher; das HUD wird
-deshalb ueber wiederholte Drucke bedient, nicht ueber Navigation.
+Zusaetzlich geht im HUD die Tastatur: **←/→** (auch ↑/↓, Tab) waehlen und
+halten den Timer an, **Enter** uebernimmt, **Esc** bricht ohne Umschalten ab.
+Dafuer bekommt das HUD, solange gewaehlt wird, den Tastaturfokus
+(`WlrLayershell.keyboardFocus` ueber DMS' `KeyboardFocus.keyboardFocus`, nur auf
+dem Schirm mit Fokus); ohne Taste verschwindet es nach 8 s. Im Popout gibt es
+keine Pfeiltasten -- DMS-Popouts haben keinen KeyCatcher.
 
 Zum Pruefen ohne zweiten Schirm: `dms ipc call bildschirme osd auswahl` zeigt
 die Auswahlzeile, ohne dass etwas zu waehlen waere (endet nach 8 s von

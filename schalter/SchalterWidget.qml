@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
@@ -147,10 +148,11 @@ PluginComponent {
     ]
 
     // HUD: 0 = zu, 1 = Modus waehlen, 2 = Bildschirm/Bereich waehlen.
-    // hudMaus: per Klick geoeffnet -- dann kein Uebernahme-Timer, das HUD
-    // nimmt Klicks an und bleibt stehen, solange der Zeiger darauf ist.
+    // hudManuell: per Klick geoeffnet oder mit Pfeiltasten angefasst -- dann
+    // kein Uebernahme-Timer, es gilt erst Klick bzw. Enter. Das HUD nimmt
+    // Klicks an und bleibt stehen, solange der Zeiger darauf ist.
     property int hudSchritt: 0
-    property bool hudMaus: false
+    property bool hudManuell: false
     property int modusIndex: 0
     property int bereichIndex: 0
 
@@ -282,7 +284,7 @@ PluginComponent {
     }
 
     function hudOeffnen(maus) {
-        root.hudMaus = maus
+        root.hudManuell = maus
         root.modusIndex = 0
         root.bereichIndex = 0
         root.hudSchritt = 1
@@ -312,7 +314,7 @@ PluginComponent {
         }
         // Wer im per Klick geoeffneten HUD zur Taste greift, bekommt ab da
         // das Tastenverhalten mit Timer.
-        root.hudMaus = false
+        root.hudManuell = false
         if (root.hudSchritt === 1)
             root.modusIndex = (root.modusIndex + 1) % root.aufnahmeModi.length
         else
@@ -327,7 +329,7 @@ PluginComponent {
             root.aufnahmeSkript(["stop"])
             return
         }
-        if (root.hudSchritt !== 0 && root.hudMaus) {
+        if (root.hudSchritt !== 0 && root.hudManuell) {
             root.hudSchliessen()
             return
         }
@@ -339,8 +341,58 @@ PluginComponent {
         root.bereichIndex = 0
         root.hudSchritt = 2
         root.osdZeigen()
-        if (!root.hudMaus)
+        if (!root.hudManuell)
             uebernahme.restart()
+    }
+
+    // Tastatur im offenen HUD: Pfeile waehlen (und halten den Timer an),
+    // Enter uebernimmt, Backspace geht zurueck zum Modus, Esc bricht ab.
+    function hudTaste(taste) {
+        if (root.hudSchritt === 0)
+            return false
+        const anzahl = root.hudSchritt === 2 ? root.aufnahmeBereiche.length : root.aufnahmeModi.length
+        const schritt = (d) => {
+            root.hudManuell = true
+            uebernahme.stop()
+            if (root.hudSchritt === 2)
+                root.bereichIndex = (root.bereichIndex + d + anzahl) % anzahl
+            else
+                root.modusIndex = (root.modusIndex + d + anzahl) % anzahl
+            root.osdZeigen()
+        }
+        switch (taste) {
+        case Qt.Key_Left:
+        case Qt.Key_Up:
+        case Qt.Key_Backtab:
+            schritt(-1)
+            return true
+        case Qt.Key_Right:
+        case Qt.Key_Down:
+        case Qt.Key_Tab:
+            schritt(1)
+            return true
+        case Qt.Key_Return:
+        case Qt.Key_Enter:
+        case Qt.Key_Space:
+            uebernahme.stop()
+            if (root.hudSchritt === 1)
+                root.modusWaehlen(root.modusIndex)
+            else
+                root.aufnahmeStarten()
+            return true
+        case Qt.Key_Backspace:
+            if (root.hudSchritt === 2) {
+                uebernahme.stop()
+                root.hudManuell = true
+                root.hudSchritt = 1
+                root.osdZeigen()
+            }
+            return true
+        case Qt.Key_Escape:
+            root.hudSchliessen()
+            return true
+        }
+        return false
     }
 
     function aufnahmeStarten() {
@@ -547,8 +599,17 @@ PluginComponent {
             // Per Klick geoeffnet: lange stehen lassen, Hover haelt es offen
             // (DankOSD.updateHoverState). Per Taste uebernimmt nach 1,2 s
             // ohnehin der Timer, die 2 s sind nur die Notbremse.
-            autoHideInterval: root.hudMaus ? 8000 : 2000
-            enableMouseInteraction: osd.auswahl && root.hudMaus
+            autoHideInterval: root.hudManuell ? 8000 : 2000
+            enableMouseInteraction: osd.auswahl && root.hudManuell
+
+            // Tastaturfokus nur, solange gewaehlt wird, und nur auf dem
+            // Schirm mit Fokus -- sonst stritten sich zwei exklusive Fenster
+            // darum. Danach geht der Fokus ans Fenster zurueck. DankOSD selbst
+            // setzt None; KeyboardFocus.keyboardFocus ist DMS' eigene Regel
+            // (u. a. kein Fokus waehrend eines Screenshots).
+            readonly property bool tastenFokus: osd.auswahl
+                && (!NiriService.currentOutput || osd.screen?.name === NiriService.currentOutput)
+            WlrLayershell.keyboardFocus: KeyboardFocus.keyboardFocus(osd.tastenFokus, null)
 
             Behavior on osdWidth {
                 enabled: osd.shouldBeVisible
@@ -592,6 +653,21 @@ PluginComponent {
                 width: parent.width - Theme.spacingS * 2
                 height: parent.height - Theme.spacingS * 2
 
+                focus: true
+                Keys.onPressed: (ereignis) => {
+                    if (root.hudTaste(ereignis.key))
+                        ereignis.accepted = true
+                }
+                // Der Inhalt sitzt in einem Loader, der den Fokus nicht von
+                // selbst weitergibt -- also bei jedem Zeigen holen.
+                Component.onCompleted: inhalt.forceActiveFocus()
+                Connections {
+                    target: root
+                    function onOsdZeigen() {
+                        inhalt.forceActiveFocus()
+                    }
+                }
+
                 // --- Auswahl: Kopfzeile, darunter die Kacheln des Schritts
                 Column {
                     anchors.centerIn: parent
@@ -606,9 +682,9 @@ PluginComponent {
                         anchors.horizontalCenter: parent.horizontalCenter
                         height: osd.kopfHoehe
                         verticalAlignment: Text.AlignVCenter
-                        text: root.hudSchritt === 2
+                        text: (root.hudSchritt === 2
                             ? root.aufnahmeModi[root.modusIndex].label + " · wo?"
-                            : "Bildschirmaufnahme"
+                            : "Bildschirmaufnahme") + "   ←→ ↵ Esc"
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText
                     }
@@ -666,7 +742,7 @@ PluginComponent {
                                 MouseArea {
                                     id: klick
                                     anchors.fill: parent
-                                    enabled: root.hudMaus
+                                    enabled: root.hudManuell
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     // Hover meldet DankOSD, damit es nicht
