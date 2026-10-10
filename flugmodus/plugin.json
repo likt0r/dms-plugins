@@ -1,0 +1,13 @@
+{
+    "id": "flugmodus",
+    "name": "Flugmodus",
+    "description": "Zeigt ein Flugzeug-Icon in der Bar, solange der Flugmodus aktiv ist -- sonst nichts. Klick schaltet ihn aus",
+    "version": "1.0.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["airplane-mode"],
+    "component": "./FlugmodusWidget.qml",
+    "startupCheck": "./StartupCheck.qml",
+    "icon": "airplanemode_active",
+    "permissions": ["settings_read"]
+}
