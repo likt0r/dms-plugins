@@ -12,6 +12,8 @@
 // Material-Symbols wie beim eingebauten VPN-Widget von DMS.
 var ICON_ON = "vpn_lock"
 var ICON_OFF = "vpn_key_off"
+// Bar-Icon, solange Proton verbunden ist (oder gerade verbindet).
+var ICON_PROTON = "shield_lock"
 
 // proton/vpn/backend/networkmanager: f"ProtonVPN {server_name}", Gerät proton0.
 var PROTON_PREFIX = "ProtonVPN "
@@ -145,13 +147,12 @@ function countryFlag(countries, code) {
   return c === "UK" ? "GB" : c
 }
 
-// Flaggen als Emoji (zwei Regional-Indicator-Zeichen); Noto Color Emoji
-// zeichnet sie. Alles, was kein Ländercode ist, ergibt "".
-function flagEmoji(code) {
+// Ländercode fürs einfarbige Badge statt bunter Flaggen-Emoji. Protons „UK“
+// wird zu „GB“; alles, was kein Ländercode ist, ergibt "".
+function countryCode(code) {
   var c = String(code || "").toUpperCase()
   if (c === "UK") c = "GB"
-  if (!/^[A-Z]{2}$/.test(c)) return ""
-  return String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65, 0x1F1E6 + c.charCodeAt(1) - 65)
+  return /^[A-Z]{2}$/.test(c) ? c : ""
 }
 
 function targetLabel(target, countries) {
@@ -352,10 +353,24 @@ function icon(options) {
   return (options || {}).connected ? ICON_ON : ICON_OFF
 }
 
+// Zustand des Bar-Icons: Schild für Proton, Schloss für andere Tunnel,
+// durchgestrichener Schlüssel ohne Verbindung; busy lässt es pulsieren.
+function barIcon(options) {
+  var o = options || {}
+  var proton = !!o.protonOn
+  return {
+    name: proton ? ICON_PROTON : icon({ connected: o.anyOn }),
+    filled: proton,
+    active: proton || !!o.anyOn,
+    busy: !!o.busy
+  }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     ICON_ON: ICON_ON,
     ICON_OFF: ICON_OFF,
+    ICON_PROTON: ICON_PROTON,
     PROTON_PREFIX: PROTON_PREFIX,
     FEATURES: FEATURES,
     FEATURE_LABELS: FEATURE_LABELS,
@@ -374,7 +389,7 @@ if (typeof module !== "undefined") {
     connectArgs: connectArgs,
     countryName: countryName,
     countryFlag: countryFlag,
-    flagEmoji: flagEmoji,
+    countryCode: countryCode,
     targetLabel: targetLabel,
     pushRecent: pushRecent,
     isFavorite: isFavorite,
@@ -390,6 +405,7 @@ if (typeof module !== "undefined") {
     rate: rate,
     pushSample: pushSample,
     niceScale: niceScale,
-    icon: icon
+    icon: icon,
+    barIcon: barIcon
   }
 }

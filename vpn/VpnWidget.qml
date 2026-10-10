@@ -85,6 +85,12 @@ PluginComponent {
         };
     }
 
+    readonly property var barIcon: Model.barIcon({
+        protonOn: root.protonState === "on" || (root.protonBusy && root.protonAction === "connect"),
+        anyOn: root.anyOn,
+        busy: root.protonBusy || DMSNetworkService.vpnIsBusy
+    })
+
     readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
         root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
 
@@ -452,19 +458,8 @@ PluginComponent {
         Row {
             spacing: Theme.spacingXS
 
-            DankIcon {
+            BarIcon {
                 anchors.verticalCenter: parent.verticalCenter
-                name: Model.icon({ connected: root.anyOn })
-                size: root.barIconPx
-                color: root.anyOn ? Theme.primary : Theme.widgetIconColor
-                opacity: root.protonBusy || DMSNetworkService.vpnIsBusy ? 0.5 : 1.0
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: Theme.shortDuration
-                        easing.type: Easing.InOutQuad
-                    }
-                }
             }
 
             StyledText {
@@ -482,13 +477,9 @@ PluginComponent {
             implicitWidth: pillIconV.width
             implicitHeight: pillIconV.height
 
-            DankIcon {
+            BarIcon {
                 id: pillIconV
                 anchors.centerIn: parent
-                name: Model.icon({ connected: root.anyOn })
-                size: root.barIconPx
-                color: root.anyOn ? Theme.primary : Theme.widgetIconColor
-                opacity: root.protonBusy || DMSNetworkService.vpnIsBusy ? 0.5 : 1.0
             }
         }
     }
@@ -505,7 +496,49 @@ PluginComponent {
         color: Theme.surfaceText
     }
 
-    // Eine Zeile mit Symbol oder Flagge links, zwei Textzeilen und rechts
+    // Bar-Icon nach Zustand (Model.barIcon); pulsiert, solange geschaltet wird.
+    component BarIcon: DankIcon {
+        id: barIconItem
+        name: root.barIcon.name
+        filled: root.barIcon.filled
+        size: root.barIconPx
+        color: root.barIcon.active ? Theme.primary : Theme.widgetIconColor
+
+        SequentialAnimation on opacity {
+            running: root.barIcon.busy
+            loops: Animation.Infinite
+            onRunningChanged: if (!running) barIconItem.opacity = 1.0
+            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
+            NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutQuad }
+        }
+    }
+
+    // Einfarbiges Länderkürzel statt bunter Flagge.
+    component CountryBadge: StyledRect {
+        id: badge
+        property string code: ""
+        property bool active: false
+        property real pixelSize: Theme.fontSizeSmall
+
+        implicitWidth: badgeText.implicitWidth + pixelSize * 0.9
+        implicitHeight: badgeText.implicitHeight + pixelSize * 0.35
+        radius: Theme.cornerRadius / 2
+        color: active ? Theme.withAlpha(Theme.primary, 0.15) : Theme.surfaceContainerHighest
+        border.width: 1
+        border.color: active ? Theme.withAlpha(Theme.primary, 0.5) : Theme.outlineVariant
+
+        StyledText {
+            id: badgeText
+            anchors.centerIn: parent
+            text: Model.countryCode(badge.code)
+            font.pixelSize: badge.pixelSize
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.5
+            color: badge.active ? Theme.primary : Theme.surfaceVariantText
+        }
+    }
+
+    // Eine Zeile mit Symbol oder Länderkürzel links, zwei Textzeilen und rechts
     // einem frei wählbaren Bedienelement (trailing).
     component EntryRow: StyledRect {
         id: entryRow
@@ -544,11 +577,11 @@ PluginComponent {
             width: Theme.iconSize + 4
             height: Theme.iconSize + 4
 
-            StyledText {
+            CountryBadge {
                 anchors.centerIn: parent
                 visible: entryRow.flag !== ""
-                text: Model.flagEmoji(entryRow.flag)
-                font.pixelSize: Theme.iconSize - 2
+                code: entryRow.flag
+                active: entryRow.active
             }
 
             DankIcon {
@@ -691,19 +724,21 @@ PluginComponent {
                                         height: 44
                                         anchors.verticalCenter: parent.verticalCenter
 
-                                        StyledText {
+                                        CountryBadge {
                                             anchors.centerIn: parent
                                             visible: (root.primary?.flag || "") !== ""
-                                            text: Model.flagEmoji(root.primary?.flag || "")
-                                            font.pixelSize: 34
+                                            code: root.primary?.flag || ""
+                                            active: root.primary?.state === "on"
+                                            pixelSize: Theme.fontSizeLarge
                                         }
 
                                         DankIcon {
                                             anchors.centerIn: parent
                                             visible: (root.primary?.flag || "") === ""
-                                            name: Model.icon({ connected: root.anyOn })
+                                            name: root.barIcon.name
+                                            filled: root.barIcon.filled
                                             size: 36
-                                            color: root.anyOn ? Theme.primary : Theme.surfaceVariantText
+                                            color: root.barIcon.active ? Theme.primary : Theme.surfaceVariantText
                                         }
                                     }
 
@@ -876,7 +911,7 @@ PluginComponent {
 
                         EntryRow {
                             visible: root.protonUsable
-                            iconName: "shield"
+                            iconName: root.protonState === "on" ? Model.ICON_PROTON : "shield"
                             flag: root.protonEntry ? (root.primary?.flag || "") : ""
                             title: "Proton VPN"
                             subtitle: root.protonState === "busy" ? (root.protonAction === "disconnect" ? "trennt …" : "verbindet …")

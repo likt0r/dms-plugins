@@ -162,11 +162,18 @@ test("target labels use the German country names and flags", () => {
   assert.equal(Model.countryName(countries, "XX"), "XX", "unknown codes stay readable")
 })
 
-test("flags are regional indicator pairs, with Proton's UK mapped to GB", () => {
-  assert.equal(Model.flagEmoji("CH"), "\u{1F1E8}\u{1F1ED}")
-  assert.equal(Model.flagEmoji("uk"), Model.flagEmoji("GB"))
-  assert.equal(Model.flagEmoji(""), "")
-  assert.equal(Model.flagEmoji("CH#1"), "")
+test("country badges show plain codes, with Proton's UK mapped to GB", () => {
+  assert.equal(Model.countryCode("CH"), "CH")
+  assert.equal(Model.countryCode("uk"), "GB")
+  assert.equal(Model.countryCode(""), "")
+  assert.equal(Model.countryCode("CH#1"), "")
+})
+
+test("the bar icon shows a shield for Proton and a lock for other tunnels", () => {
+  assert.deepEqual(Model.barIcon({}), { name: "vpn_key_off", filled: false, active: false, busy: false })
+  assert.deepEqual(Model.barIcon({ anyOn: true }), { name: "vpn_lock", filled: false, active: true, busy: false })
+  assert.deepEqual(Model.barIcon({ protonOn: true, anyOn: true }), { name: "shield_lock", filled: true, active: true, busy: false })
+  assert.deepEqual(Model.barIcon({ protonOn: true, busy: true }), { name: "shield_lock", filled: true, active: true, busy: true })
 })
 
 test("recents keep the newest first and never duplicate", () => {

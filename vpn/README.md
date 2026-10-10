@@ -51,8 +51,9 @@ verweigert sich die CLI, und das Widget meldet das als Toast.
 | Länder: Pfeil | Städte aufklappen; Klick auf eine Stadt verbindet dorthin |
 | Stern | Ziel als Favorit merken (erscheint unter „Zuletzt & Favoriten“) |
 
-Das Icon ist `vpn_lock` in der Primärfarbe, sobald irgendeine VPN-Verbindung
-steht, sonst `vpn_key_off`. Während des Umschaltens ist es halb transparent.
+Das Icon zeigt den Zustand: ein gefülltes Schild (`shield_lock`) in der
+Primärfarbe, sobald Proton VPN verbunden ist, `vpn_lock` für jede andere
+VPN-Verbindung, sonst `vpn_key_off` in Grau. Während des Umschaltens pulsiert es.
 
 Von außen, etwa per Keybind in `niri/config.kdl`:
 
@@ -173,8 +174,9 @@ liest das Widget die Ausgabe und verlässt sich nicht auf den Exit-Code.
 mittlere Last, Secure Core/P2P/Tor. Die Ländernamen kommen auf Deutsch aus
 `iso-codes`. Das Ergebnis (~30 KB) wird in `~/.cache/dms/vpn-proton-locations.json`
 gecacht und nur neu gebaut, wenn sich die Serverliste ändert. Ins Netz geht der
-Helfer nicht: Die Liste aktualisiert die CLI selbst bei `connect`. Flaggen sind
-Emoji (Noto Color Emoji); Protons „UK“ wird dafür zu „GB“.
+Helfer nicht: Die Liste aktualisiert die CLI selbst bei `connect`. Länder stehen
+statt als bunte Flagge als einfarbiges Kürzel-Badge in den Theme-Farben;
+Protons „UK“ wird dafür zu „GB“.
 
 **Traffic.** Alle 2 s die Zähler aus `/sys/class/net/<if>/statistics`, die
 letzten 5 Minuten als Graph (Download durchgezogen, Upload gestrichelt). Das

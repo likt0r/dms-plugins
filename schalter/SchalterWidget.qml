@@ -53,6 +53,14 @@ PluginComponent {
     // IPC-Ziel selbst haengt wie ueblich an der zuerst geladenen Instanz.
     property Item vpnIcon: null
 
+    // Zustand des VPN-Icons kommt von vpnHub (Schild bei Proton, Schloss bei
+    // anderen Tunneln, Pulsieren beim Schalten; Model.barIcon dort). Gleiche
+    // Instanz wie fuer vpnPopout(); globalVars wird bei jedem Setzen neu
+    // zugewiesen, die Bindung zieht also nach, sobald vpnHub geladen ist.
+    readonly property var vpnHub: PluginService.getGlobalVar("vpnHub",
+        "anker:" + (root.parentScreen?.name || ""), null)
+    readonly property var vpnZustand: root.vpnHub?.barIcon ?? null
+
     readonly property int anzahlAktiv: root.schalter.filter(id => root.istAktiv(id)).length
     readonly property bool anfasserZeigen: root.anzahlAktiv === 0 && !root.gruppeGehovert
 
@@ -85,7 +93,7 @@ PluginComponent {
         case "wach":
             return SessionService.idleInhibited
         case "vpn":
-            return NetworkService.vpnConnected
+            return root.vpnZustand ? root.vpnZustand.active : NetworkService.vpnConnected
         case "diktat":
             return root.diktatZustand === "recording"
                 || root.diktatZustand === "streaming"
@@ -99,7 +107,7 @@ PluginComponent {
         case "wach":
             return "coffee"
         case "vpn":
-            return "vpn_lock"
+            return root.vpnZustand?.name || "vpn_lock"
         case "diktat":
             return root.diktatZustand === "transcribing" ? "hourglass_top" : "mic"
         }
@@ -134,8 +142,7 @@ PluginComponent {
     // holen sie und rufen popoutAnkern() direkt -- kein Prozessstart, und auf
     // dem zweiten Monitor trifft es die dortige Instanz.
     function vpnPopout(quelle) {
-        const hub = PluginService.getGlobalVar("vpnHub",
-            "anker:" + (root.parentScreen?.name || ""), null)
+        const hub = root.vpnHub
         const ziel = quelle || root.vpnIcon
         if (hub && ziel && typeof hub.popoutAnkern === "function") {
             const p = ziel.mapToItem(null, 0, 0)
@@ -280,6 +287,16 @@ PluginComponent {
                         height: root.barIconPx
                         visible: platz.gezeigt
 
+                        // Pulsieren auf dem Platz, nicht auf dem Icon: dessen
+                        // opacity haengt schon an aktiv/inaktiv.
+                        SequentialAnimation on opacity {
+                            running: platz.modelData === "vpn" && (root.vpnZustand?.busy ?? false)
+                            loops: Animation.Infinite
+                            onRunningChanged: if (!running) platz.opacity = 1
+                            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
+                        }
+
                         Component.onCompleted: if (platz.modelData === "vpn")
                             root.vpnIcon = platz
                         Component.onDestruction: if (root.vpnIcon === platz)
@@ -288,6 +305,7 @@ PluginComponent {
                         DankIcon {
                             anchors.centerIn: parent
                             name: root.iconFuer(platz.modelData)
+                            filled: platz.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
                             size: root.barIconPx
                             color: platz.aktiv ? Theme.primary : Theme.widgetTextColor
                             // 0.45 fuer aufgedeckt-inaktiv ist aus Omarchys
@@ -378,6 +396,14 @@ PluginComponent {
                         height: platzV.gezeigt ? root.barIconPx : 0
                         visible: platzV.gezeigt
 
+                        SequentialAnimation on opacity {
+                            running: platzV.modelData === "vpn" && (root.vpnZustand?.busy ?? false)
+                            loops: Animation.Infinite
+                            onRunningChanged: if (!running) platzV.opacity = 1
+                            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
+                        }
+
                         Component.onCompleted: if (platzV.modelData === "vpn")
                             root.vpnIcon = platzV
                         Component.onDestruction: if (root.vpnIcon === platzV)
@@ -386,6 +412,7 @@ PluginComponent {
                         DankIcon {
                             anchors.centerIn: parent
                             name: root.iconFuer(platzV.modelData)
+                            filled: platzV.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
                             size: root.barIconPx
                             color: platzV.aktiv ? Theme.primary : Theme.widgetTextColor
                             opacity: platzV.aktiv ? 1 : 0.45
