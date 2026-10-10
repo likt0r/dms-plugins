@@ -1,0 +1,69 @@
+#!/bin/sh
+# Ein Aufruf der lokalen REST-API von Super Productivity.
+#
+#   sp-api METHOD PFAD [JSON-BODY]
+#   sp-api GET '/tasks?includeDone=true'
+#   sp-api POST /tasks '{"title":"Milch"}'
+#
+# Gibt immer genau ein JSON-Objekt der Form {"ok":...} auf stdout aus und
+# endet mit 0 -- auch wenn SP nicht laeuft oder das Token fehlt. Dann kommt
+# {"ok":false,"error":{"code":"OFFLINE"|"NO_TOKEN"|...}}, damit das Widget
+# nur einen Fehlerpfad kennt.
+#
+# Das Token legt SP selbst in eine 0600-Datei unter userData, sobald die API
+# eingeschaltet ist. Es geht ueber `curl -K -` (stdin) statt als Argument an
+# curl, damit es nicht in /proc/*/cmdline steht.
+
+set -u
+
+method=${1:?METHOD fehlt}
+path=${2:?PFAD fehlt}
+body=${3-}
+
+base=${SP_API_BASE:-http://127.0.0.1:3876}
+
+fail() {
+    printf '{"ok":false,"error":{"code":"%s","message":"%s"}}\n' "$1" "$2"
+    exit 0
+}
+
+token_file=${SP_TOKEN_FILE-}
+if [ -z "$token_file" ]; then
+    # Flatpak zuerst, dann die nativen Pakete (RPM/AppImage).
+    for f in \
+        "$HOME/.var/app/com.super_productivity.SuperProductivity/config/superProductivity/local-rest-api-token" \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/superProductivity/local-rest-api-token"
+    do
+        if [ -r "$f" ]; then token_file=$f; break; fi
+    done
+fi
+[ -n "$token_file" ] && [ -r "$token_file" ] \
+    || fail NO_TOKEN "Kein Token gefunden: lokale REST-API in Super Productivity einschalten"
+
+token=$(tr -d '[:space:]' < "$token_file")
+[ -n "$token" ] || fail NO_TOKEN "Token-Datei ist leer"
+
+set -- -sS --max-time 10 -X "$method" -w '\n%{http_code}'
+if [ -n "$body" ]; then
+    set -- "$@" -H 'Content-Type: application/json' --data-binary "$body"
+fi
+
+out=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+    | curl -K - "$@" "$base$path" 2>/dev/null)
+rc=$?
+
+case $rc in
+    0) ;;
+    7) fail OFFLINE "Super Productivity laeuft nicht oder die REST-API ist aus" ;;
+    28) fail TIMEOUT "Super Productivity antwortet nicht" ;;
+    *) fail CURL "curl-Fehler $rc" ;;
+esac
+
+code=${out##*
+}
+json=${out%
+*}
+case $json in
+    '{'*) printf '%s\n' "$json" ;;
+    *) fail HTTP "HTTP $code ohne JSON-Antwort" ;;
+esac

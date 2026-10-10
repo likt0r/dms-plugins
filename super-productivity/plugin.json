@@ -1,0 +1,15 @@
+{
+    "id": "superProductivity",
+    "name": "Todos",
+    "description": "Todos aus Super Productivity: die Pille zeigt, was heute ansteht, ein Klick klappt von der Seite eine Liste zum Anlegen und Abhaken auf",
+    "version": "0.1.0",
+    "author": "Benjamin Werner",
+    "type": "widget",
+    "capabilities": ["todo", "tasks"],
+    "component": "./TodoWidget.qml",
+    "settings": "./Settings.qml",
+    "icon": "checklist",
+    "requires_dms": ">=1.6.0",
+    "dependencies": ["curl"],
+    "permissions": ["settings_read", "settings_write", "process"]
+}
