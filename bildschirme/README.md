@@ -27,7 +27,19 @@ Zum Pruefen ohne zweiten Schirm: `dms ipc call bildschirme osd auswahl` zeigt
 die Auswahlzeile, ohne dass etwas zu waehlen waere (endet nach 8 s von
 selbst).
 
-## Wann die Pille zu sehen ist
+## Die Pille ist derzeit ganz abgeschaltet
+
+Der Bar-Eintrag steht auf `{"id": "bildschirme", "enabled": false}` -- seit F7
+die Auswahl als HUD zeigt, braucht es kein Icon mehr. Das Plugin laeuft
+trotzdem weiter (`WidgetHost.active` haengt nicht an `enabled`), sonst waere
+auch das HUD weg.
+
+Preis: Das Popout mit den **Anzeigeprofilen** ist dann nur noch ueber
+`dms ipc call bildschirme toggle` erreichbar, nicht mehr per Klick. Wer es
+zurueck will, setzt den Eintrag auf `enabled: true` -- dann greift wieder die
+Regel unten.
+
+## Wann die Pille zu sehen ist, falls wieder eingeschaltet
 
 Nur, wenn ein externer Schirm angeschlossen ist -- ohne zweiten Monitor gibt
 es nichts umzuschalten. Die Pille haengt an `hatExtern`; beim An- und
