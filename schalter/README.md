@@ -1,13 +1,13 @@
 # Umschalter
 
-Eine Pille in der Bar-Mitte mit vier Umschaltern. Ersatz fuer Omarchys
+Eine Pille in der Bar-Mitte mit fuenf Umschaltern. Ersatz fuer Omarchys
 `omarchy.indicators`.
 
 | Zustand | Anzeige |
 |---|---|
 | nichts aktiv | nur ein gedimmter Anfasser (`...`) |
 | etwas aktiv | nur die aktiven Icons, in Akzentfarbe |
-| Zeiger darueber | alle vier, inaktive bei Deckkraft 0,45 |
+| Zeiger darueber | alle fuenf, inaktive bei Deckkraft 0,45 |
 
 | Umschalter | Icon | liest | Klick |
 |---|---|---|---|
@@ -15,6 +15,7 @@ Eine Pille in der Bar-Mitte mit vier Umschaltern. Ersatz fuer Omarchys
 | VPN | Schloss | `NetworkService.vpnConnected` | oeffnet das vpnHub-Popout |
 | Diktat | Mikrofon / Sanduhr | `$XDG_RUNTIME_DIR/voxtype/state` | `voxtype record toggle` |
 | Aufnahme | Bildschirm mit Punkt, rot + Laufzeit | `$XDG_RUNTIME_DIR/bildschirmaufnahme/state` | laeuft: stoppen, sonst HUD-Auswahl |
+| Meldungen | Glocke (+ roter Punkt) / durchgestrichen | `NotificationService.unreadCount`, `SessionData.doNotDisturb` | Benachrichtigungszentrum; Mittelklick: Nicht stoeren |
 
 VPN schaltet bewusst **nicht** selbst: welche der Verbindungen gemeint waere,
 ist nicht zu erraten. Der Klick oeffnet das Popout von `vpnHub`, dort stehen
@@ -30,8 +31,15 @@ immer nur die zuerst geladene Instanz traefe. Faellt der Weg aus (altes
 `vpnHub`, Klick vor dem Laden), bleibt `dms ipc call vpnHub openPopout` als
 Rueckfall, und das Popout geht wieder rechts auf.
 
-**Nicht stoeren ist absichtlich nicht dabei:** der `notificationButton` rechts
-zeigt denselben Zustand und kann mehr -- er zaehlt ungelesene Meldungen.
+**Meldungen ersetzen DMS' `notificationButton`** (dessen Bar-Eintrag steht auf
+`enabled: false`). Aktiv -- also immer sichtbar -- ist die Glocke bei
+Ungelesenem (roter Punkt) oder "Nicht stoeren" (durchgestrichen). Das
+Benachrichtigungszentrum geht unter der Glocke auf: DMS' eigener Knopf nimmt
+`DankBarContent.openWidgetPopout`, das Plugins nicht erreichen; hier laeuft es
+wie beim VPN ueber `getPopupTriggerPosition` + `setTriggerPosition` am Popout
+aus `PopoutService.notificationCenterPopout` (LazyLoader, `active = true`
+legt es an). Die Dauer fuer "Nicht stoeren" waehlt man im Control Center
+(Rechtsklick auf die Pille).
 
 Rechtsklick auf die Pille oeffnet das Control Center.
 
@@ -60,8 +68,8 @@ nie etwas -- fehlt sie, legt das Plugin sie leer an und laedt neu.
 
 ```
 dms ipc call schalter status                 # welche aktiv sind
-dms ipc call schalter toggle wach|vpn|diktat|aufnahme
-dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aufnahme|aus
+dms ipc call schalter toggle wach|vpn|diktat|aufnahme|meldungen
+dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aufnahme|meldungen|aus
 dms ipc call schalter aufnahme               # F10: HUD bzw. stoppen
 dms ipc call schalter osd aufnahme           # nur das HUD zeigen (8 s)
 ```

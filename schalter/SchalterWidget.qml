@@ -48,10 +48,12 @@ PluginComponent {
 
     // Reihenfolge in der Pille. Fest, nicht nach Aktivitaet sortiert: ein
     // Icon, das seinen Platz behaelt, ist leichter zu treffen.
-    // "ruhe" (Nicht stoeren) steht bewusst NICHT hier: der notificationButton
-    // rechts zeigt denselben Zustand und kann mehr -- er zaehlt ungelesene
-    // Meldungen. Zwei Glocken in einer Leiste waeren eine zu viel.
-    readonly property var schalter: ["wach", "vpn", "diktat", "aufnahme"]
+    // "meldungen" ersetzt DMS' notificationButton (in der Bar abgeschaltet):
+    // Glocke mit rotem Punkt bei Ungelesenem, durchgestrichen bei "Nicht
+    // stoeren". Klick oeffnet das Benachrichtigungszentrum unter der Glocke,
+    // Mittelklick schaltet "Nicht stoeren", Rechtsklick (Pille) fuehrt ins
+    // Control Center mit der Dauer-Auswahl.
+    readonly property var schalter: ["wach", "vpn", "diktat", "aufnahme", "meldungen"]
 
     property bool gruppeGehovert: false
 
@@ -155,6 +157,8 @@ PluginComponent {
                 || root.diktatZustand === "transcribing"
         case "aufnahme":
             return root.aufnahmeLaeuft
+        case "meldungen":
+            return root.ungelesen || SessionData.doNotDisturb
         }
         return false
     }
@@ -176,6 +180,8 @@ PluginComponent {
             return root.diktatZustand === "transcribing" ? "hourglass_top" : "mic"
         case "aufnahme":
             return "screen_record"
+        case "meldungen":
+            return SessionData.doNotDisturb ? "notifications_off" : "notifications"
         }
         return "help"
     }
@@ -196,7 +202,41 @@ PluginComponent {
         case "aufnahme":
             root.aufnahmeKlick()
             break
+        case "meldungen":
+            root.meldungenPopout(quelle)
+            break
         }
+    }
+
+    // --- Benachrichtigungen -----------------------------------------------------
+    readonly property bool ungelesen: NotificationService.unreadCount > 0
+    // Glocke der gerade gebauten Pille -- fuer den Weg ueber IPC, wie vpnIcon.
+    property Item meldungenIcon: null
+
+    // Das Benachrichtigungszentrum unter der Glocke aufgehen lassen. DMS'
+    // eigener Knopf geht ueber DankBarContent.openWidgetPopout, das Plugins
+    // nicht erreichen; der Weg hier ist derselbe wie popoutAnkern() in
+    // vpn/VpnWidget.qml: Position aus getPopupTriggerPosition, dann
+    // setTriggerPosition + toggle am Popout. Das Popout liegt in einem
+    // LazyLoader (DMSShell.qml), active = true legt es an.
+    function meldungenPopout(quelle) {
+        const loader = PopoutService.notificationCenterLoader
+        if (loader)
+            loader.active = true
+        const popout = PopoutService.notificationCenterPopout || loader?.item || null
+        const ziel = quelle || root.meldungenIcon
+        if (!popout || !ziel || typeof popout.setTriggerPosition !== "function") {
+            PopoutService.toggleNotificationCenter()
+            return
+        }
+        const schirm = root.parentScreen || Screen
+        const kante = root.axis?.edge === "left" ? 2 : (root.axis?.edge === "right" ? 3 : (root.axis?.edge === "top" ? 0 : 1))
+        const p = ziel.mapToItem(null, 0, 0)
+        const pos = SettingsData.getPopupTriggerPosition({ "x": p.x, "y": p.y },
+            schirm, root.barThickness, ziel.width, root.barSpacing, kante, root.barConfig)
+        popout.setTriggerPosition(pos.x, pos.y, pos.width, "center", schirm, kante,
+            root.barThickness, root.barSpacing, root.barConfig)
+        popout.toggle()
     }
 
     // --- Bildschirmaufnahme: Auswahl und Steuerung ----------------------------
@@ -422,7 +462,7 @@ PluginComponent {
             } else if (root.schalter.indexOf(was) !== -1) {
                 root.demo = [was]
             } else {
-                return "unbekannt: " + was + " (wach|vpn|diktat|aufnahme|alle|nichts|aus)"
+                return "unbekannt: " + was + " (wach|vpn|diktat|aufnahme|meldungen|alle|nichts|aus)"
             }
             demoEnde.restart()
             return "ok"
@@ -732,10 +772,31 @@ PluginComponent {
                             NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
                         }
 
-                        Component.onCompleted: if (platz.modelData === "vpn")
-                            root.vpnIcon = platz
-                        Component.onDestruction: if (root.vpnIcon === platz)
-                            root.vpnIcon = null
+                        Component.onCompleted: {
+                            if (platz.modelData === "vpn")
+                                root.vpnIcon = platz
+                            if (platz.modelData === "meldungen")
+                                root.meldungenIcon = platz
+                        }
+                        Component.onDestruction: {
+                            if (root.vpnIcon === platz)
+                                root.vpnIcon = null
+                            if (root.meldungenIcon === platz)
+                                root.meldungenIcon = null
+                        }
+
+                        // Ungelesenes: roter Punkt oben rechts wie bei DMS'
+                        // NotificationCenterButton.
+                        Rectangle {
+                            z: 1
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: Theme.error
+                            x: root.barIconPx - width
+                            y: 0
+                            visible: platz.modelData === "meldungen" && root.ungelesen
+                        }
 
                         StyledText {
                             id: dauer
@@ -772,7 +833,14 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: false
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.schalten(platz.modelData, platz)
+                            acceptedButtons: platz.modelData === "meldungen"
+                                ? (Qt.LeftButton | Qt.MiddleButton) : Qt.LeftButton
+                            onClicked: (maus) => {
+                                if (maus.button === Qt.MiddleButton)
+                                    SessionData.setDoNotDisturb(!SessionData.doNotDisturb)
+                                else
+                                    root.schalten(platz.modelData, platz)
+                            }
                         }
                     }
                 }
@@ -872,7 +940,14 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: false
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.schalten(platzV.modelData, platzV)
+                            acceptedButtons: platzV.modelData === "meldungen"
+                                ? (Qt.LeftButton | Qt.MiddleButton) : Qt.LeftButton
+                            onClicked: (maus) => {
+                                if (maus.button === Qt.MiddleButton)
+                                    SessionData.setDoNotDisturb(!SessionData.doNotDisturb)
+                                else
+                                    root.schalten(platzV.modelData, platzV)
+                            }
                         }
                     }
                 }
