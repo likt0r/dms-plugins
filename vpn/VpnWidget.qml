@@ -95,9 +95,70 @@ PluginComponent {
     Component.onCompleted: {
         root.loadQuickTargets();
         protonCheck.running = true;
+        root.ankerMelden();
     }
 
     onPluginServiceChanged: root.loadQuickTargets()
+
+    // --- Anker fuer fremde Ausloeser -----------------------------------------
+    // Die VPN-Taste sitzt in der schalter-Gruppe in der Bar-Mitte; die eigene
+    // Pille ist ausgeblendet (settings.json: enabled false) und steht trotzdem
+    // rechts in der Leiste. `triggerPopout()` verankert das Popout immer an
+    // ihr -- es faehrt dann rechts herunter statt unter dem geklickten Icon.
+    // Darum kann die Gruppe uns direkt ansprechen und die Stelle mitgeben.
+    //
+    // Der Weg dorthin ist `PluginService.globalVars`: ein Ablagefach, in dem
+    // Plugins beliebige Werte unter ihrer Id hinterlegen
+    // (Widgets/PluginGlobalVar.qml nutzt dasselbe). Hier liegt die Instanz
+    // selbst darin, getrennt je Schirm -- sonst bediente ein Klick auf dem
+    // zweiten Monitor die Instanz des ersten. Nichts davon landet auf Platte.
+    //
+    // Warum nicht per IPC: `dms ipc call` startet einen Prozess und erreicht
+    // immer nur die zuerst registrierte Instanz, also einen festen Schirm.
+    // `openPopoutAt` unten gibt es trotzdem -- zum Pruefen von Hand.
+    onParentScreenChanged: root.ankerMelden()
+
+    // Schluessel aus dem Schirm, NICHT aus einer gebundenen Property: beim
+    // Melden aus onParentScreenChanged heraus steht eine solche Bindung noch
+    // auf dem alten Wert, der Eintrag landete dann unter "anker:".
+    function ankerSchluessel(schirm) {
+        return "anker:" + (schirm?.name || "");
+    }
+
+    function ankerMelden() {
+        if (root.parentScreen?.name)
+            PluginService.setGlobalVar("vpnHub", root.ankerSchluessel(root.parentScreen), root);
+    }
+
+    // Das Popout gehoert PluginComponent und heisst dort `pluginPopout`; ids
+    // sind dateiweit, von hier aus also unsichtbar. Es ist aber ein Kind-Item
+    // und als einziges an `setTriggerPosition` zu erkennen.
+    function popoutFenster() {
+        for (var i = 0; i < root.children.length; i++) {
+            const kind = root.children[i];
+            if (kind && typeof kind.setTriggerPosition === "function")
+                return kind;
+        }
+        return null;
+    }
+
+    // globalX/globalY/breite: wo der fremde Knopf steht. Bei waagerechter Bar
+    // zaehlt nur x (das Popout wird darauf zentriert), bei senkrechter nur y.
+    function popoutAnkern(globalX, globalY, breite) {
+        const fenster = root.popoutFenster();
+        if (!fenster) {
+            root.triggerPopout();
+            return;
+        }
+        const schirm = root.parentScreen || Screen;
+        const kante = root.axis?.edge === "left" ? 2 : (root.axis?.edge === "right" ? 3 : (root.axis?.edge === "top" ? 0 : 1));
+        const pos = SettingsData.getPopupTriggerPosition({
+            "x": globalX,
+            "y": globalY
+        }, schirm, root.barThickness, breite, root.barSpacing, kante, root.barConfig);
+        fenster.setTriggerPosition(pos.x, pos.y, pos.width, "center", schirm, kante, root.barThickness, root.barSpacing, root.barConfig);
+        fenster.toggle();
+    }
 
     // --- Aktionen -------------------------------------------------------------
 
@@ -197,6 +258,10 @@ PluginComponent {
 
     // Steuerung von außen (Keybind in niri/config.kdl):
     //   dms ipc call vpnHub openPopout
+    //   dms ipc call vpnHub openPopoutAt <x> <y> <breite>   Popout an einer
+    //                                         fremden Stelle oeffnen; so
+    //                                         ruft die schalter-Gruppe es,
+    //                                         nur dort direkt statt per IPC
     //   dms ipc call vpnHub toggle <verbindung|proton>
     //   dms ipc call vpnHub connectTo <ziel>     Proton: "", "DE", "DE#12", "Berlin"
     //   dms ipc call vpnHub disconnectProton
@@ -209,6 +274,16 @@ PluginComponent {
 
         function openPopout(): string {
             root.triggerPopout();
+            return "ok";
+        }
+
+        function openPopoutAt(x: string, y: string, breite: string): string {
+            const gx = parseFloat(x);
+            const gy = parseFloat(y);
+            const b = parseFloat(breite);
+            if (!isFinite(gx) || !isFinite(gy) || !isFinite(b))
+                return "ungueltig: x y breite in Pixeln erwartet";
+            root.popoutAnkern(gx, gy, b);
             return "ok";
         }
 

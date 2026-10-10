@@ -46,6 +46,13 @@ PluginComponent {
 
     property bool gruppeGehovert: false
 
+    // Das VPN-Icon der gerade gebauten Pille. Nur dafuer da, dass der Weg
+    // ueber IPC (und damit ein Tastenkuerzel) das Popout an derselben Stelle
+    // oeffnet wie ein Mausklick. Je Schirm gibt es eine eigene Instanz dieses
+    // Plugins, also zeigt es immer auf das Icon des eigenen Schirms; nur das
+    // IPC-Ziel selbst haengt wie ueblich an der zuerst geladenen Instanz.
+    property Item vpnIcon: null
+
     readonly property int anzahlAktiv: root.schalter.filter(id => root.istAktiv(id)).length
     readonly property bool anfasserZeigen: root.anzahlAktiv === 0 && !root.gruppeGehovert
 
@@ -99,21 +106,46 @@ PluginComponent {
         return "help"
     }
 
-    function schalten(id) {
+    // `quelle` ist das angeklickte Icon; nur das VPN-Popout braucht es, um
+    // unter dem Icon aufzugehen statt am alten Platz der vpnHub-Pille.
+    function schalten(id, quelle) {
         switch (id) {
         case "wach":
             SessionService.toggleIdleInhibit()
             break
         case "vpn":
-            // Nicht selbst schalten: welche der Verbindungen gemeint waere,
-            // ist nicht zu erraten. Der Klick oeffnet das Popout des
-            // vpnHub-Plugins, dort stehen alle Verbindungen.
-            Quickshell.execDetached(["dms", "ipc", "call", "vpnHub", "openPopout"])
+            root.vpnPopout(quelle)
             break
         case "diktat":
             Quickshell.execDetached(["voxtype", "record", "toggle"])
             break
         }
+    }
+
+    // Nicht selbst schalten: welche der Verbindungen gemeint waere, ist nicht
+    // zu erraten. Der Klick oeffnet das Popout des vpnHub-Plugins, dort stehen
+    // alle Verbindungen.
+    //
+    // Es muss unter DIESEM Icon herunterfahren. vpnHub verankert sein Popout
+    // sonst an der eigenen Pille -- die ist ausgeblendet, steht aber weiter
+    // rechts in der Leiste, und das Popout faehrt dort herunter. Also reichen
+    // wir die Stelle durch: vpnHub hinterlegt seine Instanz je Schirm in
+    // PluginService.globalVars (siehe VpnWidget.qml, Abschnitt "Anker"), wir
+    // holen sie und rufen popoutAnkern() direkt -- kein Prozessstart, und auf
+    // dem zweiten Monitor trifft es die dortige Instanz.
+    function vpnPopout(quelle) {
+        const hub = PluginService.getGlobalVar("vpnHub",
+            "anker:" + (root.parentScreen?.name || ""), null)
+        const ziel = quelle || root.vpnIcon
+        if (hub && ziel && typeof hub.popoutAnkern === "function") {
+            const p = ziel.mapToItem(null, 0, 0)
+            hub.popoutAnkern(p.x, p.y, ziel.width)
+            return
+        }
+        // Rueckfall: vpnHub noch nicht geladen oder aelter als der Anker.
+        // Dann oeffnet es sich an seinem eigenen Platz -- immer noch besser
+        // als gar nichts.
+        Quickshell.execDetached(["dms", "ipc", "call", "vpnHub", "openPopout"])
     }
 
     // Rechtsklick fuehrt ins Control Center -- dort liegen die ausfuehrlichen
@@ -175,7 +207,9 @@ PluginComponent {
         function toggle(id: string): string {
             if (root.schalter.indexOf(id) === -1)
                 return "unbekannt: " + id
-            root.schalten(id)
+            // Ohne Quelle: das VPN-Popout nimmt dann root.vpnIcon, geht
+            // also an derselben Stelle auf wie beim Mausklick.
+            root.schalten(id, null)
             return "ok"
         }
     }
@@ -246,6 +280,11 @@ PluginComponent {
                         height: root.barIconPx
                         visible: platz.gezeigt
 
+                        Component.onCompleted: if (platz.modelData === "vpn")
+                            root.vpnIcon = platz
+                        Component.onDestruction: if (root.vpnIcon === platz)
+                            root.vpnIcon = null
+
                         DankIcon {
                             anchors.centerIn: parent
                             name: root.iconFuer(platz.modelData)
@@ -268,7 +307,7 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: false
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.schalten(platz.modelData)
+                            onClicked: root.schalten(platz.modelData, platz)
                         }
                     }
                 }
@@ -339,6 +378,11 @@ PluginComponent {
                         height: platzV.gezeigt ? root.barIconPx : 0
                         visible: platzV.gezeigt
 
+                        Component.onCompleted: if (platzV.modelData === "vpn")
+                            root.vpnIcon = platzV
+                        Component.onDestruction: if (root.vpnIcon === platzV)
+                            root.vpnIcon = null
+
                         DankIcon {
                             anchors.centerIn: parent
                             name: root.iconFuer(platzV.modelData)
@@ -354,7 +398,7 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: false
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.schalten(platzV.modelData)
+                            onClicked: root.schalten(platzV.modelData, platzV)
                         }
                     }
                 }

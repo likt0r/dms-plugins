@@ -18,9 +18,16 @@ Eine Pille in der Bar-Mitte mit drei Umschaltern. Ersatz fuer Omarchys
 VPN schaltet bewusst **nicht** selbst: welche der Verbindungen gemeint waere,
 ist nicht zu erraten. Der Klick oeffnet das Popout von `vpnHub`, dort stehen
 alle. Dessen Bar-Eintrag steht dafuer auf `enabled: false` -- das Plugin laeuft
-weiter und sein Popout bleibt erreichbar, nur die Pille ist weg. Das Popout
-erscheint dann weiterhin dort, wo seine Pille laege (rechter Rand), nicht unter
-der Gruppe.
+weiter und sein Popout bleibt erreichbar, nur die Pille ist weg.
+
+Damit das Popout **unter der Gruppe** herunterfaehrt und nicht am alten Platz
+der vpnHub-Pille am rechten Rand, reichen wir die Stelle durch: `vpnHub` legt
+seine Instanz je Schirm in `PluginService.globalVars` ab (Schluessel
+`anker:<Schirmname>`), diese Gruppe holt sie dort und ruft `popoutAnkern(x, y,
+breite)` direkt auf -- ohne `dms ipc call`, das einen Prozess startete und
+immer nur die zuerst geladene Instanz traefe. Faellt der Weg aus (altes
+`vpnHub`, Klick vor dem Laden), bleibt `dms ipc call vpnHub openPopout` als
+Rueckfall, und das Popout geht wieder rechts auf.
 
 **Nicht stoeren ist absichtlich nicht dabei:** der `notificationButton` rechts
 zeigt denselben Zustand und kann mehr -- er zaehlt ungelesene Meldungen.

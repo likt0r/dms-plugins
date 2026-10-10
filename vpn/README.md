@@ -58,12 +58,33 @@ Von außen, etwa per Keybind in `niri/config.kdl`:
 
 ```sh
 dms ipc call vpnHub openPopout
+dms ipc call vpnHub openPopoutAt 960 0 20   # an einer fremden Stelle oeffnen
 dms ipc call vpnHub toggle wg_config        # NM-Profil (Name oder Anzeigename)
 dms ipc call vpnHub toggle proton           # Proton an/aus, Standardziel
 dms ipc call vpnHub connectTo CH            # Proton: "", "CH", "CH#42", "Zurich"
 dms ipc call vpnHub disconnectProton
 dms ipc call vpnHub status
 ```
+
+### Popout von fremder Stelle oeffnen
+
+Sitzt die VPN-Taste woanders -- hier in der Umschalter-Gruppe `schalter` in der
+Bar-Mitte, waehrend der eigene Bar-Eintrag auf `enabled: false` steht --, dann
+verankert `triggerPopout()` das Popout trotzdem an der eigenen, ausgeblendeten
+Pille: es faehrt am rechten Rand herunter statt unter dem geklickten Icon.
+
+Dafuer meldet das Plugin seine Instanz je Schirm in
+`PluginService.globalVars` an (`vpnHub` / `anker:<Schirmname>`, nur im
+Speicher). Wer sie dort holt, ruft
+
+```qml
+hub.popoutAnkern(globalX, globalY, breite)
+```
+
+und das Popout geht an dieser Stelle auf. `openPopoutAt` oben ist derselbe Weg
+von Hand -- fuer echte Ausloeser ist der direkte Aufruf besser: kein
+Prozessstart, und auf dem zweiten Monitor trifft er die dortige Instanz, waehrend
+`dms ipc call` immer nur die zuerst geladene erreicht.
 
 Nicht `connect`/`disconnect`: Diese Namen hat jedes QObject schon, und ein
 `IpcHandler` mit solchen Funktionen wird nicht registriert.
