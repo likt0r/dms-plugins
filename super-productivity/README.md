@@ -60,17 +60,20 @@ Die Seite (rechts/links) und die Breite stehen in den Einstellungen.
   Checklisten, Links). Ein Klick in die Notiz schaltet auf das rohe Markdown
   zum Bearbeiten. Gespeichert wird 800 ms nach der letzten Eingabe, beim
   Verlassen des Felds, mit Esc und beim Schließen des Panels. Links öffnen per
-  `xdg-open`. Ein Notiz-Marker direkt hinter dem Titel zeigt, dass ein Task
-  Notizen hat; ein Klick darauf klappt ihn auf.
-- **Projekt-Notizen** markiert ein Notiz-Icon (mit Zahl ab zwei) neben der
+  `xdg-open`. Ein Sprechblasen-Icon direkt hinter dem Titel zeigt, dass ein
+  Task Notizen hat; ein Klick darauf klappt ihn auf.
+- **Projekt-Notizen** markiert ein Kommentar-Icon (mit Zahl ab zwei) neben der
   Projekt-Kopfzeile bzw. unter einem Projekt-Chip über der Liste. Lesen kann
   das Plugin sie nicht: die API liefert pro Projekt nur `noteIds`, eine Route
   für Notizen gibt es nicht. Ein Klick auf den Marker holt deshalb SP nach
   vorn.
 - **Doppelklick** auf einen Titel benennt den Task um (Enter speichert, Esc
   bricht ab).
-- Beim Überfahren erscheinen ▶/■ für die Zeiterfassung und ein Papierkorb.
+- Beim Überfahren erscheinen ▶/⏸ für die Zeiterfassung und ein Papierkorb.
   Löschen braucht zwei Klicks, weil die API kein Rückgängig kennt.
+- Die Icons folgen SP: `chat` für Notizen, `comment` für Projekt-Notizen,
+  `today` (rot) für überfällig, `play_arrow`/`pause` für die Zeiterfassung,
+  `delete_forever` zum Löschen.
 - Bei *Heute* und *Alle* sind die Tasks nach Projekt gruppiert, in der
   Reihenfolge wie in SP. Unteraufgaben stehen eingerückt darunter.
 - *Erledigt (n)* am Ende klappt die erledigten Tasks auf. Unter *Heute* sind

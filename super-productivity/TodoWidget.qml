@@ -763,7 +763,8 @@ PluginComponent {
 
             DankIcon {
                 anchors.verticalCenter: parent.verticalCenter
-                name: "sticky_note_2"
+                // "comment" wie SPs Knopf fuer Projekt-Notizen.
+                name: "comment"
                 size: 14
                 color: Theme.primary
             }
@@ -819,7 +820,7 @@ PluginComponent {
         property var row: ({})
         readonly property bool editing: root.editingId !== "" && root.editingId === row.id
         readonly property bool armed: root.armedDeleteId !== "" && root.armedDeleteId === row.id
-        readonly property bool showActions: hover.containsMouse || armed || row.isCurrent === true
+        readonly property bool showActions: rowHover.hovered || armed || row.isCurrent === true
         readonly property bool open: root.openId !== "" && root.openId === row.id
         readonly property bool hasNotes: String(row.notes || "").trim() !== ""
         implicitHeight: 36 + (open ? notesBox.height + Theme.spacingXS : 0)
@@ -836,7 +837,16 @@ PluginComponent {
                 anchors.fill: parent
                 radius: Theme.cornerRadius
                 color: taskItem.row.isCurrent ? Theme.withAlpha(Theme.primary, 0.12)
-                    : hover.containsMouse ? Theme.surfaceHover : "transparent"
+                    : rowHover.hovered ? Theme.surfaceHover : "transparent"
+            }
+
+            // Hover fuer die ganze Zeile per HoverHandler: der bleibt auch
+            // ueber den Knoepfen an. Mit hoverEnabled an der MouseArea nahm
+            // der Knopf ihr den Hover weg, die Knoepfe verschwanden, die Zeile
+            // bekam ihn zurueck, sie erschienen wieder -- es flackerte.
+            HoverHandler {
+                id: rowHover
+                cursorShape: Qt.PointingHandCursor
             }
 
             // Die ganze Zeile: Klick klappt den Task auf (Notizen), Doppelklick
@@ -844,10 +854,7 @@ PluginComponent {
             // nicht. Checkbox und Knoepfe liegen darueber und fangen ihre
             // Klicks selbst; abgehakt wird nur ueber die Checkbox.
             MouseArea {
-                id: hover
                 anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
                 onClicked: root.toggleOpen(taskItem.row.id)
                 onDoubleClicked: root.editingId = taskItem.row.id
             }
@@ -870,9 +877,10 @@ PluginComponent {
                 }
             }
 
-            // Ueberfaellig: rotes Kalender-Icon vor dem Titel. Rechts in der
-            // Meta-Spalte stand frueher "ueberfaellig" und tauschte beim
-            // Ueberfahren mit den Knoepfen -- das sprang und wirkte
+            // Ueberfaellig: rotes Kalender-Icon vor dem Titel, wie SP sein
+            // Datums-Icon (today) bei ueberfaelligen Tasks rot faerbt. Rechts
+            // in der Meta-Spalte stand frueher "ueberfaellig" und tauschte
+            // beim Ueberfahren mit den Knoepfen -- das sprang und wirkte
             // uebereinander.
             DankIcon {
                 id: overdueIcon
@@ -880,7 +888,7 @@ PluginComponent {
                 anchors.left: check.right
                 anchors.leftMargin: Theme.spacingS
                 anchors.verticalCenter: parent.verticalCenter
-                name: "event_busy"
+                name: "today"
                 size: 16
                 color: Theme.error
             }
@@ -910,7 +918,8 @@ PluginComponent {
                 anchors.left: titleText.right
                 anchors.leftMargin: Theme.spacingXS
                 anchors.verticalCenter: parent.verticalCenter
-                name: "sticky_note_2"
+                // "chat" wie SPs Notiz-Anzeige in der Task-Liste.
+                name: "chat"
                 filled: taskItem.open
                 size: 16
                 color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.primary
@@ -956,16 +965,16 @@ PluginComponent {
                 DankActionButton {
                     visible: taskItem.showActions && !taskItem.row.isDone
                     buttonSize: 28
-                    iconName: taskItem.row.isCurrent ? "stop" : "play_arrow"
+                    iconName: taskItem.row.isCurrent ? "pause" : "play_arrow"
                     iconColor: taskItem.row.isCurrent ? Theme.primary : Theme.surfaceText
-                    tooltipText: taskItem.row.isCurrent ? "Zeiterfassung stoppen" : "Zeiterfassung starten"
+                    tooltipText: taskItem.row.isCurrent ? "Zeiterfassung pausieren" : "Zeiterfassung starten"
                     onClicked: root.toggleTracking(taskItem.row.id)
                 }
 
                 DankActionButton {
                     visible: taskItem.showActions
                     buttonSize: 28
-                    iconName: taskItem.armed ? "delete_forever" : "delete"
+                    iconName: "delete_forever"
                     iconColor: taskItem.armed ? Theme.error : Theme.surfaceVariantText
                     tooltipText: taskItem.armed ? "Nochmal klicken zum Löschen" : "Löschen"
                     onClicked: root.requestDelete(taskItem.row.id)
