@@ -8,8 +8,10 @@ der Gruppe.
 
 Nur Anzeige: Zustand und Steuerung liegen in `schalter`, die Kachel findet
 dessen Instanz ueber `PluginService.getGlobalVar("schalter", "instanz")`.
-Ohne geladene Gruppe steht "schalter-Gruppe fehlt" auf der Kachel, der Klick
-geht dann ueber `dms ipc call schalter toggle aufnahme`.
+Ohne geladene Gruppe steht "schalter-Gruppe fehlt" auf der Kachel, und ein
+Klick meldet "schalter-Gruppe nicht geladen" als Benachrichtigung -- ein
+IPC-Aufruf liefe ohne Gruppe ins Leere (Log: `journalctl --user -u dms -g
+'\[aufnahmeKachel\]'`).
 
 Warum ein eigenes Plugin: das Control Center legt fuer jede Kachel eine eigene
 Instanz der Plugin-Komponente an (beim Auflisten sogar eine Wegwerf-Instanz).

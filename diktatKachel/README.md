@@ -7,7 +7,8 @@ F12.
 
 Aufbau wie [`aufnahmeKachel`](../aufnahmeKachel/): nur Anzeige, Zustand aus
 der [`schalter`](../schalter/)-Gruppe. Ohne Gruppe geht der Klick direkt an
-`voxtype record toggle`.
+`voxtype record toggle`; scheitert das, kommt eine Benachrichtigung (Log:
+`journalctl --user -u dms -g '\[diktatKachel\]'`).
 
 Einrichten: `dms ipc call plugins enable diktatKachel`, dann im Control Center
 hinzufuegen (`plugin_diktatKachel` in `controlCenterWidgets`).

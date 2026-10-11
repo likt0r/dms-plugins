@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Modules.Plugins
@@ -34,9 +35,43 @@ PluginComponent {
     // Tastaturfokus, und voxtype tippte den Text ins Leere statt ins Fenster.
     onCcWidgetToggled: {
         PopoutService.closeControlCenter()
-        if (root.gruppe)
+        if (root.gruppe) {
             root.gruppe.schalten("diktat", null)
-        else
-            Quickshell.execDetached(["voxtype", "record", "toggle"])
+        } else {
+            // Anders als die Aufnahme braucht das Diktat die Gruppe nicht:
+            // voxtype direkt schalten, nur nicht mehr blind.
+            root.protokoll("schalter-Gruppe nicht geladen, schalte voxtype direkt")
+            if (!rueckfall.running)
+                rueckfall.running = true
+        }
+    }
+
+    // journalctl --user -u dms -g '\[diktatKachel\]'
+    function protokoll(text) {
+        console.warn("[diktatKachel] " + text)
+    }
+
+    function melden(titel, text) {
+        root.protokoll(titel + " – " + text)
+        Quickshell.execDetached(["notify-send", "-a", "Diktat", "-i", "audio-input-microphone",
+            "-u", "normal", titel, text])
+    }
+
+    // Ueber sh, damit ein fehlendes voxtype mit Exit 127 endet statt gar
+    // nicht zu starten (dann kaeme kein onExited).
+    Process {
+        id: rueckfall
+        command: ["sh", "-c", "exec voxtype record toggle"]
+        stderr: StdioCollector {
+            id: rueckfallErr
+            waitForEnd: true
+        }
+        onExited: (exitCode) => Qt.callLater(() => {
+            if (exitCode === 0)
+                return
+            root.protokoll("voxtype record toggle -> Exit " + exitCode + "\n" + rueckfallErr.text.trim())
+            const zeilen = rueckfallErr.text.trim().split("\n")
+            root.melden("Diktat ließ sich nicht schalten", zeilen[zeilen.length - 1] || ("Exit " + exitCode))
+        })
     }
 }

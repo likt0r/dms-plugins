@@ -32,11 +32,25 @@ PluginComponent {
 
     // Das Control Center zuerst schliessen: die Auswahl erscheint als HUD
     // unten am Bildschirm, und eine Aufnahme soll es nicht mit drauf haben.
+    // Ohne Gruppe gibt es auch kein IPC-Ziel "schalter" -- ein Aufruf liefe
+    // ins Leere. Also sagen, woran es liegt, statt still nichts zu tun.
     onCcWidgetToggled: {
         PopoutService.closeControlCenter()
         if (root.gruppe)
             root.gruppe.schalten("aufnahme", null)
         else
-            Quickshell.execDetached(["dms", "ipc", "call", "schalter", "toggle", "aufnahme"])
+            root.melden("schalter-Gruppe nicht geladen",
+                "Die Aufnahme läuft über das Plugin schalter. Es ist aus oder nicht in der Bar.")
+    }
+
+    // journalctl --user -u dms -g '\[aufnahmeKachel\]'
+    function protokoll(text) {
+        console.warn("[aufnahmeKachel] " + text)
+    }
+
+    function melden(titel, text) {
+        root.protokoll(titel + " – " + text)
+        Quickshell.execDetached(["notify-send", "-a", "Bildschirmaufnahme", "-i", "media-record",
+            "-u", "normal", titel, text])
     }
 }
