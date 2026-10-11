@@ -108,6 +108,24 @@ PluginComponent {
         return ["sh", "-c", "exec \"$HOME/.local/bin/monitor-modus\" \"$@\"", "sh"].concat(args)
     }
 
+    // Nur ins Journal von dms.service: journalctl --user -u dms -g '\[bildschirme\]'
+    function protokoll(text) {
+        console.warn("[bildschirme] " + text)
+    }
+
+    // Volles Detail ins Log, der kurze Grund als Desktop-Benachrichtigung
+    // (DMS ist der Server; nicht transient, bleibt also in der Historie).
+    function melden(titel, text, dringlich) {
+        root.protokoll(titel + ": " + text)
+        Quickshell.execDetached(["notify-send", "-a", "Bildschirme", "-i", "video-display",
+            "-u", dringlich === true ? "critical" : "normal", titel, text])
+    }
+
+    function letzteZeile(text) {
+        const zeilen = String(text || "").trim().split("\n")
+        return zeilen[zeilen.length - 1].trim()
+    }
+
     function laden() {
         if (statusProc.running)
             return
@@ -129,7 +147,9 @@ PluginComponent {
             }
         } catch (e) {
             // Kaputte Ausgabe lieber ignorieren als den letzten guten Stand
-            // durch eine leere Liste ersetzen.
+            // durch eine leere Liste ersetzen. Nur ins Log: der naechste
+            // 30-s-Takt holt den Stand ohnehin neu.
+            root.protokoll("status lieferte kein JSON (" + e + "): " + String(text).trim().substring(0, 200))
         }
     }
 
@@ -334,21 +354,73 @@ PluginComponent {
         }
     }
 
+    // monitor-modus status meldet selbst nichts (es laeuft im 30-s-Takt),
+    // das macht dieser Prozess -- und nur beim Wechsel "ging -> geht nicht".
     Process {
         id: statusProc
+        property bool kaputt: false
         command: root.helfer(["status"])
         stdout: StdioCollector {
+            id: statusOut
             waitForEnd: true
-            onStreamFinished: root.uebernehmen(text)
         }
-        stderr: StdioCollector { waitForEnd: true }
+        stderr: StdioCollector {
+            id: statusErr
+            waitForEnd: true
+        }
+        // Auswerten erst nach dem Exit und per Qt.callLater: exited und
+        // streamFinished kommen in keiner festen Reihenfolge.
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                if (exitCode !== 0) {
+                    const fehler = statusErr.text.trim()
+                    root.protokoll("monitor-modus status: Exit " + exitCode
+                        + (fehler !== "" ? "\n" + fehler : " ohne stderr"))
+                    if (!statusProc.kaputt)
+                        root.melden("Bildschirmstatus nicht lesbar",
+                            fehler !== "" ? root.letzteZeile(fehler) : "monitor-modus endete mit Code " + exitCode)
+                    statusProc.kaputt = true
+                    return
+                }
+                statusProc.kaputt = false
+                root.uebernehmen(statusOut.text)
+            })
+        }
     }
 
+    // Exit-Codes von monitor-modus (siehe dort): 1 = schon selbst gemeldet,
+    // 3 = nichts zu schalten (Hinweis fuers HUD, kein Fehler). Alles andere
+    // ungleich 0 heisst, das Skript kam gar nicht bis zu seiner Meldung --
+    // fehlt, falscher Aufruf, abgeschossen --, dann meldet das Plugin.
     Process {
         id: aktionProc
-        // Nach dem Schalten nachlesen statt raten -- wl-mirror braucht einen
-        // Moment, bis pgrep ihn sieht.
-        onExited: nachlauf.restart()
+        stderr: StdioCollector {
+            id: aktionErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                const fehler = aktionErr.text.trim()
+                // Nichts geschaltet: sonst verschluckte der naechste, fremde
+                // Moduswechsel sein OSD.
+                if (exitCode !== 0)
+                    root.ausDerAuswahl = false
+                if (exitCode === 3) {
+                    root.hinweisZeigen(fehler !== "" ? root.letzteZeile(fehler) : "Kein externer Bildschirm")
+                } else if (exitCode === 1) {
+                    root.protokoll("monitor-modus " + aktionProc.command.slice(4).join(" ")
+                        + ": Exit 1 (vom Skript gemeldet)" + (fehler !== "" ? "\n" + fehler : ""))
+                } else if (exitCode !== 0) {
+                    root.protokoll("monitor-modus " + aktionProc.command.slice(4).join(" ")
+                        + ": Exit " + exitCode + (fehler !== "" ? "\n" + fehler : " ohne stderr"))
+                    root.melden("Bildschirmmodus nicht umgeschaltet",
+                        fehler !== "" ? root.letzteZeile(fehler) : "monitor-modus endete mit Code " + exitCode)
+                }
+                // Nach dem Schalten nachlesen statt raten -- wl-mirror braucht
+                // einen Moment, bis pgrep ihn sieht.
+                nachlauf.restart()
+            })
+        }
     }
 
     // Nach dieser Pause ohne weiteren Druck gilt die Auswahl.

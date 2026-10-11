@@ -85,6 +85,30 @@ mit einem Hinweis statt eine tote Liste zu zeigen.
 
 Optional: `wl-mirror` (Fedora: `dnf install wl-mirror`).
 
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (App „Bildschirme“) und bleiben im
+Benachrichtigungszentrum. „Kein externer Bildschirm“ ist kein Fehler und
+bleibt ein Hinweis im eigenen HUD.
+
+Wer meldet was — damit nichts doppelt aufpoppt, richtet sich das Plugin nach
+dem Exit-Code von `monitor-modus`:
+
+| Exit | Bedeutung | Wer meldet |
+|---|---|---|
+| 0 | geschaltet | — |
+| 1 | Fehler (niri lehnt ab, Profil unbekannt, wl-mirror fehlt) | das Skript |
+| 3 | nichts zu schalten (kein externer/interner Schirm) | Hinweis im HUD |
+| sonst | Skript fehlt, falscher Aufruf, abgeschossen | das Plugin |
+
+`monitor-modus status` (alle 30 s) meldet selbst nichts; scheitert es, meldet
+das Plugin einmal beim Wechsel von „ging“ zu „geht nicht“.
+
+```sh
+journalctl --user -u dms -g '\[bildschirme\]'   # Plugin
+journalctl -t monitor-modus                       # Skript, mit Traceback
+```
+
 ## IPC
 
 ```
