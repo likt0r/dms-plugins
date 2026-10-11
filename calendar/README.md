@@ -93,15 +93,17 @@ dms ipc call calendar next          # naechster Termin als Text
 Fehler kommen als Desktop-Benachrichtigung (Absender „Kalender“) und bleiben
 im Benachrichtigungszentrum:
 
-- ein neuer Fehler des Kalender-Backends (khal oder dcal); derselbe Fehler
-  noch einmal kommt nicht erneut, und bei mehreren Bildschirmen nur einmal,
+- ein neuer Fehler in `CalendarService.lastError`; derselbe Fehler noch
+  einmal kommt nicht erneut, und bei mehreren Bildschirmen nur einmal,
 - das Backend verschwindet und bleibt 15 s weg (ein kurzer Neustart von dcal
   meldet sich nicht; die Box im Popout bleibt wie bisher),
 - ein Link oder `dcal show` laesst sich nicht oeffnen.
 
-Die Backend-Fehler liest das Plugin aus den Backends unter
-`CalendarService.children`, weil `CalendarService.lastError` in DMS nie
-gesetzt wird. Jede Meldung steht mit allen Details im Journal:
+Einschränkung: DMS setzt `CalendarService.lastError` bisher nie. Die Fehler
+von khal und dcal stecken in den Backends hinter privaten ids, und an die kommt
+ein Plugin nicht heran. Ein fehlgeschlagener Abruf bleibt deshalb vorerst
+still, bis DMS den Fehler durchreicht. Jede Meldung steht mit allen Details im
+Journal:
 
 ```
 journalctl --user -u dms -g '\[calendar\]'

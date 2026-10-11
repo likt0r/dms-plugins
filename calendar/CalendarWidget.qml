@@ -239,24 +239,11 @@ PluginComponent {
 
     // CalendarService.lastError gibt es, gesetzt wird es aber nirgends (Stand
     // DMS 2026-10); die eigentlichen Fehler halten khal- und dank-Backend in
-    // ihrem eigenen lastError, und beide sind nur ueber private ids des
-    // Dienstes erreichbar. Gefunden werden sie deshalb unter seinen children
-    // (Singleton erbt von Scope) an der lastError-Eigenschaft. Findet sich
-    // nichts, bleibt es eben beim Dienst selbst.
-    readonly property var kalenderBackends: {
-        var gefunden = []
-        try {
-            var kinder = CalendarService.children || []
-            for (var i = 0; i < kinder.length; i++) {
-                if (kinder[i] && typeof kinder[i].lastError === "string")
-                    gefunden.push(kinder[i])
-            }
-        } catch (e) {
-            console.warn("[calendar] Backends von CalendarService nicht auffindbar: " + e)
-        }
-        return gefunden
-    }
-
+    // ihrem eigenen lastError hinter privaten ids. Von aussen kommt man nicht
+    // heran: die children eines Singletons lassen sich in QML nicht
+    // durchlaufen ("List doesn't define a Count function"). Beobachtet wird
+    // deshalb nur der Dienst -- greift, sobald DMS lastError durchreicht.
+    // Ein ausgefallenes Backend meldet der Wechsel weiter unten.
     function backendFehler(quelle, text) {
         var fehler = String(text || "").trim()
         if (fehler === "") {
@@ -274,22 +261,6 @@ PluginComponent {
         ignoreUnknownSignals: true
         function onLastErrorChanged() {
             root.backendFehler("CalendarService", CalendarService.lastError)
-        }
-    }
-
-    Connections {
-        target: root.kalenderBackends.length > 0 ? root.kalenderBackends[0] : null
-        ignoreUnknownSignals: true
-        function onLastErrorChanged() {
-            root.backendFehler("Backend 1", root.kalenderBackends[0].lastError)
-        }
-    }
-
-    Connections {
-        target: root.kalenderBackends.length > 1 ? root.kalenderBackends[1] : null
-        ignoreUnknownSignals: true
-        function onLastErrorChanged() {
-            root.backendFehler("Backend 2", root.kalenderBackends[1].lastError)
         }
     }
 
