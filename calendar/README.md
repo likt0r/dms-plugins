@@ -88,6 +88,25 @@ dms ipc call calendar status        # Backend und Zahl der heutigen Termine
 dms ipc call calendar next          # naechster Termin als Text
 ```
 
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (Absender „Kalender“) und bleiben
+im Benachrichtigungszentrum:
+
+- ein neuer Fehler des Kalender-Backends (khal oder dcal); derselbe Fehler
+  noch einmal kommt nicht erneut, und bei mehreren Bildschirmen nur einmal,
+- das Backend verschwindet und bleibt 15 s weg (ein kurzer Neustart von dcal
+  meldet sich nicht; die Box im Popout bleibt wie bisher),
+- ein Link oder `dcal show` laesst sich nicht oeffnen.
+
+Die Backend-Fehler liest das Plugin aus den Backends unter
+`CalendarService.children`, weil `CalendarService.lastError` in DMS nie
+gesetzt wird. Jede Meldung steht mit allen Details im Journal:
+
+```
+journalctl --user -u dms -g '\[calendar\]'
+```
+
 ## Einstellungen
 
 Alles ueber Settings → Plugins → Kalender. `ww` in einem Format setzt die

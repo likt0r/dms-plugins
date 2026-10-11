@@ -120,7 +120,10 @@ PluginComponent {
         CalendarService.loadEvents(from, to)
     }
 
-    Component.onCompleted: root.ensureRange()
+    Component.onCompleted: {
+        root.ensureRange()
+        root.backendWarDa = root.backendReady
+    }
     onViewMonthChanged: root.ensureRange()
     onViewYearChanged: root.ensureRange()
 
@@ -187,11 +190,189 @@ PluginComponent {
     function openUrl(url) {
         if (!Model.isOpenableUrl(url))
             return
-        Quickshell.execDetached(["xdg-open", String(url)])
+        oeffnen.starten(["xdg-open", String(url)], "Link nicht geöffnet")
     }
 
     function openInCalendarApp() {
-        Quickshell.execDetached(["dcal", "show"])
+        oeffnen.starten(["dcal", "show"], "Kalender-App nicht geöffnet")
+    }
+
+    // ------------------------------------------------------ Fehler & Log
+    //
+    // Fehler gehen als Desktop-Benachrichtigung raus statt als Toast: die
+    // bleibt im Benachrichtigungszentrum stehen. Ins Journal von dms.service
+    // kommt jede Meldung mit allen Details, auch die, die nicht als
+    // Benachrichtigung rausgeht:
+    //   journalctl --user -u dms -g '\[calendar\]'
+
+    function protokoll(text) {
+        console.warn("[calendar] " + text)
+    }
+
+    // detail nur fuers Log (Befehl, Exit-Code, stderr); die Benachrichtigung
+    // bekommt den kurzen Grund.
+    function melden(titel, text, dringlich, detail) {
+        root.protokoll(titel + ": " + text + (detail ? "\n" + detail : ""))
+        Quickshell.execDetached(["notify-send", "-a", "Kalender", "-i", "x-office-calendar",
+            "-u", dringlich ? "critical" : "normal", titel, text])
+    }
+
+    // Jede Bar instanziiert das Widget, und alle haengen am selben
+    // CalendarService -- ein Backend-Fehler kaeme sonst einmal je Bildschirm.
+    // Die Marke liegt deshalb in den globalVars, die alle Instanzen teilen:
+    // gemeldet wird ein Schluessel nur, wenn sein Wert sich gegenueber der
+    // letzten Meldung geaendert hat. Das faengt auch identische Wiederholungen
+    // desselben Fehlers ab.
+    function meldenEinmal(schluessel, wert, titel, text, detail) {
+        if (PluginService.getGlobalVar("calendar", schluessel, "") === wert) {
+            root.protokoll(titel + ": " + text + " (schon gemeldet)")
+            return
+        }
+        PluginService.setGlobalVar("calendar", schluessel, wert)
+        root.melden(titel, text, false, detail)
+    }
+
+    function vergessen(schluessel) {
+        if (PluginService.getGlobalVar("calendar", schluessel, "") !== "")
+            PluginService.setGlobalVar("calendar", schluessel, "")
+    }
+
+    // CalendarService.lastError gibt es, gesetzt wird es aber nirgends (Stand
+    // DMS 2026-10); die eigentlichen Fehler halten khal- und dank-Backend in
+    // ihrem eigenen lastError, und beide sind nur ueber private ids des
+    // Dienstes erreichbar. Gefunden werden sie deshalb unter seinen children
+    // (Singleton erbt von Scope) an der lastError-Eigenschaft. Findet sich
+    // nichts, bleibt es eben beim Dienst selbst.
+    readonly property var kalenderBackends: {
+        var gefunden = []
+        try {
+            var kinder = CalendarService.children || []
+            for (var i = 0; i < kinder.length; i++) {
+                if (kinder[i] && typeof kinder[i].lastError === "string")
+                    gefunden.push(kinder[i])
+            }
+        } catch (e) {
+            console.warn("[calendar] Backends von CalendarService nicht auffindbar: " + e)
+        }
+        return gefunden
+    }
+
+    function backendFehler(quelle, text) {
+        var fehler = String(text || "").trim()
+        if (fehler === "") {
+            // khal setzt lastError nach dem naechsten guten Abruf zurueck;
+            // derselbe Fehler danach ist wieder neu.
+            root.vergessen("fehler:" + quelle)
+            return
+        }
+        root.meldenEinmal("fehler:" + quelle, fehler, "Termine nicht geladen",
+            fehler, "Quelle: " + quelle + " (" + CalendarService.activeBackend + ")")
+    }
+
+    Connections {
+        target: CalendarService
+        ignoreUnknownSignals: true
+        function onLastErrorChanged() {
+            root.backendFehler("CalendarService", CalendarService.lastError)
+        }
+    }
+
+    Connections {
+        target: root.kalenderBackends.length > 0 ? root.kalenderBackends[0] : null
+        ignoreUnknownSignals: true
+        function onLastErrorChanged() {
+            root.backendFehler("Backend 1", root.kalenderBackends[0].lastError)
+        }
+    }
+
+    Connections {
+        target: root.kalenderBackends.length > 1 ? root.kalenderBackends[1] : null
+        ignoreUnknownSignals: true
+        function onLastErrorChanged() {
+            root.backendFehler("Backend 2", root.kalenderBackends[1].lastError)
+        }
+    }
+
+    // Kein Backend: gemeldet wird nur der Wechsel von verfuegbar auf nicht
+    // verfuegbar, und erst wenn es 15 s so bleibt. Ein Neustart von dcal
+    // trennt die Verbindung nur kurz, und beim Shell-Start ist das Backend
+    // ohnehin noch nicht verbunden -- dafuer gibt es die Box im Popout.
+    // Absichtlich kein Binding: es soll den alten Stand halten, wenn
+    // backendReady faellt. Gesetzt in Component.onCompleted und unten.
+    property bool backendWarDa: false
+
+    onBackendReadyChanged: {
+        if (root.backendReady) {
+            root.backendWarDa = true
+            backendWeg.stop()
+            root.vergessen("backendWeg")
+            return
+        }
+        root.protokoll("Kalender-Backend nicht mehr verfuegbar (" + CalendarService.activeBackend + ")")
+        if (root.backendWarDa)
+            backendWeg.restart()
+    }
+
+    Timer {
+        id: backendWeg
+        interval: 15000
+        onTriggered: {
+            if (root.backendReady)
+                return
+            root.meldenEinmal("backendWeg", "ja", "Kein Kalender-Backend",
+                "dcal ist nicht erreichbar. systemctl --user status dcal",
+                "backendPref: " + SettingsData.calendarBackend
+                + ", dcal verbunden: " + CalendarService.dankConnected
+                + ", dcal installiert: " + CalendarService.dankBinaryExists)
+        }
+    }
+
+    // xdg-open und `dcal show` liefen frueher per execDetached, Exit-Code
+    // und stderr gingen verloren. Beide kehren sofort zurueck (dcal meldet
+    // sich nur beim laufenden Daemon), der Process haelt also nichts fest.
+    // Fehlt das Programm ganz, kommt von Quickshell kein exited, nur running
+    // faellt ohne vorheriges started zurueck -- das zaehlt als Exit -1.
+    Process {
+        id: oeffnen
+
+        property string titel: ""
+        property bool gestartet: false
+
+        function starten(argv, titelBeiFehler) {
+            // Ein zweiter Klick, waehrend der erste noch laeuft, zaehlt nicht:
+            // ein laufender Process laesst sich nicht neu starten.
+            if (oeffnen.running)
+                return
+            oeffnen.command = argv
+            oeffnen.titel = titelBeiFehler
+            oeffnen.gestartet = false
+            oeffnen.running = true
+        }
+
+        function gescheitert(exitCode, fehlerText) {
+            var zeilen = String(fehlerText || "").split("\n").filter(function(z) { return z.trim() !== "" })
+            var grund = exitCode < 0 ? "Programm nicht gefunden: " + oeffnen.command[0]
+                : (zeilen.length > 0 ? zeilen[zeilen.length - 1].trim() : "Exit-Code " + exitCode)
+            root.melden(oeffnen.titel, grund, false,
+                "Befehl: " + oeffnen.command.join(" ") + "\nExit-Code: " + exitCode
+                + "\nstderr: " + String(fehlerText || "").trim())
+        }
+
+        stderr: StdioCollector { id: oeffnenFehler; waitForEnd: true }
+        onStarted: oeffnen.gestartet = true
+        onRunningChanged: {
+            if (!oeffnen.running && !oeffnen.gestartet)
+                oeffnen.gescheitert(-1, "")
+        }
+        // Per Qt.callLater gelesen: exited kann vor dem Ende des
+        // stderr-Stroms kommen, dann waere der Collector noch leer.
+        onExited: function(exitCode, exitStatus) {
+            if (exitCode === 0 && exitStatus === 0)
+                return
+            Qt.callLater(function() {
+                oeffnen.gescheitert(exitStatus === 0 ? exitCode : 128, oeffnenFehler.text)
+            })
+        }
     }
 
     // ------------------------------------------------------------- Pillen
