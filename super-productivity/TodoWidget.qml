@@ -1,24 +1,30 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Common
+import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
 // Todos aus Super Productivity: Pille in der Bar, Klick (oder Super+M) klappt
-// darunter ein Popout von oben auf, wie bei Benachrichtigungen oder WLAN. Dort
-// werden Tasks angelegt, abgehakt, umbenannt, geloescht und die
-// Zeiterfassung gestartet.
+// von der Bildschirmkante ein Panel herein (DankSlideout, wie das Notepad von
+// DMS). Dort werden Tasks angelegt, abgehakt, umbenannt, geloescht, mit
+// Notizen versehen und die Zeiterfassung gestartet.
+//
+// Das Panel ist bewusst kein Popout: es meldet sich nicht beim PopoutManager
+// an. Popouts (Kontrollzentrum, WLAN ...) gehen deshalb darueber auf und
+// lassen es offen, statt es zu schliessen -- wie beim Notepad.
 //
 // Die Daten gehoeren Super Productivity: das Plugin spricht nur mit dessen
 // lokaler REST-API (127.0.0.1:3876) ueber bin/sp-api und haelt nichts
 // selbst vor. Der Sync zu OpenCloud (WebDAV) ist Sache der App. Laeuft sie
-// nicht, zeigt das Popout einen Startknopf statt einer leeren Liste.
+// nicht, zeigt das Panel einen Startknopf statt einer leeren Liste.
 //
 // Die API kennt keine Push-Nachrichten: das Plugin fragt nach, alle
-// refreshInterval Sekunden im Hintergrund und alle 10 s, solange das Popout
-// offen ist. Aenderungen aus dem Popout erscheinen sofort (optimistisch) und
+// refreshInterval Sekunden im Hintergrund und alle 10 s, solange das Panel
+// offen ist. Aenderungen aus dem Panel erscheinen sofort (optimistisch) und
 // werden danach mit dem echten Stand abgeglichen.
 PluginComponent {
     id: root
@@ -30,6 +36,7 @@ PluginComponent {
     readonly property string startFilter: String(pluginData?.startFilter ?? "today")
     readonly property string defaultProject: String(pluginData?.defaultProject ?? "")
     readonly property real panelWidth: Math.max(320, Number(pluginData?.panelWidth ?? 420))
+    readonly property string slideEdge: pluginData?.slideEdge === "left" ? "left" : "right"
     readonly property int refreshInterval: Math.max(15, Number(pluginData?.refreshInterval ?? 60))
     readonly property string launchCommand: String(pluginData?.launchCommand
         || "flatpak run com.super_productivity.SuperProductivity")
@@ -58,6 +65,11 @@ PluginComponent {
     property bool showDone: false
     property string editingId: ""
     property string armedDeleteId: ""
+    // Aufgeklapptes Todo (zeigt seine Notizen) und eines, dessen Notiz gerade
+    // bearbeitet wird. Waehrend des Bearbeitens pausiert der Abgleich, sonst
+    // ueberschriebe er das Feld unter dem Cursor.
+    property string openId: ""
+    property string notesEditingId: ""
 
     property date now: new Date()
 
@@ -121,7 +133,7 @@ PluginComponent {
     // Tasks, Projekte und laufender Task parallel; uebernommen wird erst, wenn
     // alle drei da sind, damit Liste und Chips nie aus zwei Staenden stammen.
     function refresh() {
-        if (root.editingId !== "") return
+        if (root.editingId !== "" || root.notesEditingId !== "") return
         if (root.refreshing) {
             root.refreshQueued = true
             return
@@ -206,6 +218,53 @@ PluginComponent {
         })
     }
 
+    // Notizen speichern: nur wenn sich etwas geaendert hat (Model.notesPatch),
+    // lokal sofort, dann per PATCH. SP nimmt "notes" wie "title" an.
+    function saveNotes(id, oldNotes, text) {
+        var body = Model.notesPatch(oldNotes, text)
+        if (!body) return
+        root.patchLocal(id, body)
+        root.api("PATCH", root.taskPath(id), body, r => {
+            if (!r.ok) root.fail(r)
+            root.refresh()
+        })
+    }
+
+    function toggleOpen(id) {
+        root.openId = root.openId === id ? "" : id
+    }
+
+    // Links aus Notizen: ueber xdg-open, Fehler als Benachrichtigung statt
+    // stumm (Konvention der Plugins: melden() loggt und benachrichtigt).
+    function protokoll(text) {
+        console.warn("[superProductivity] " + text)
+    }
+
+    function melden(titel, text) {
+        root.protokoll(titel + ": " + text)
+        Quickshell.execDetached(["notify-send", "-a", "Todos", "-i", "checkbox-checked-symbolic", titel, text])
+    }
+
+    Process {
+        id: linkProc
+        property string url: ""
+        stderr: StdioCollector {
+            id: linkErr
+            waitForEnd: true
+        }
+        onExited: exitCode => Qt.callLater(() => {
+            if (exitCode !== 0)
+                root.melden("Link nicht geöffnet", linkProc.url + (linkErr.text.trim() ? " – " + linkErr.text.trim() : ""))
+        })
+    }
+
+    function openLink(url) {
+        if (!url || linkProc.running) return
+        linkProc.url = url
+        linkProc.command = ["sh", "-c", "exec xdg-open \"$0\"", url]
+        linkProc.running = true
+    }
+
     // Loeschen braucht zwei Klicks: der erste faerbt den Knopf rot, der
     // zweite loescht. Die API kennt kein Rueckgaengig.
     function requestDelete(id) {
@@ -241,14 +300,33 @@ PluginComponent {
         launchRetry.restart()
     }
 
-    function toggle() {
-        root.triggerPopout()
+    // parentScreen ist in Plugin-Widgets null, das Slideout bekaeme damit
+    // keine Geometrie. Deshalb waehlt jedes Oeffnen den Schirm selbst: per
+    // Klick den der Pille, per IPC den fokussierten, notfalls den ersten.
+    property var slideScreen: null
+
+    function screenByName(name) {
+        var list = Quickshell.screens
+        for (var i = 0; i < list.length; i++)
+            if (list[i].name === name) return list[i]
+        return null
+    }
+
+    function toggle(screenName) {
+        if (slideout.isVisible) {
+            slideout.hide()
+            return
+        }
+        root.slideScreen = root.screenByName(screenName || "")
+            || root.screenByName(BarWidgetService.getFocusedScreenName() || "")
+            || Quickshell.screens[0]
+        Qt.callLater(() => slideout.show())
     }
 
     // --------------------------------------------------------------- Zeitgeber
 
     Timer {
-        interval: root.popoutOpen ? 10000 : root.refreshInterval * 1000
+        interval: slideout.isVisible ? 10000 : root.refreshInterval * 1000
         running: true
         repeat: true
         onTriggered: root.refresh()
@@ -293,6 +371,7 @@ PluginComponent {
     readonly property real barIconPx: Theme.barIconSize(root.barThickness, -4,
         root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
 
+    pillClickAction: (x, y, width, section, screen) => root.toggle(screen ? screen.name : "")
     pillRightClickAction: () => root.launchApp()
 
     horizontalBarPill: Component {
@@ -348,38 +427,106 @@ PluginComponent {
         }
     }
 
-    // ------------------------------------------------------------------ Popout
+    // ------------------------------------------------------------------ Panel
 
-    // Das gewoehnliche Plugin-Popout: klappt unter der Pille von oben auf wie
-    // Benachrichtigungen oder WLAN und schliesst sich, sobald ein anderes
-    // Popout aufgeht -- das regelt DMS (PopoutManager), nicht das Plugin.
-    popoutWidth: root.panelWidth
+    DankSlideout {
+        id: slideout
+        modelData: root.slideScreen
+        // Ohne title: den Kopf zeichnet das Panel selbst, damit Zaehler und
+        // die Knoepfe Neu laden / SP oeffnen darin Platz haben.
+        title: ""
+        slideoutWidth: root.panelWidth
+        slideEdge: root.slideEdge
+        // Im Frame-Modus legt DankSlideout sich auf den Overlay-Layer, ueber
+        // alle Popouts (die liegen auf Top). Gewollt ist das Gegenteil:
+        // Popouts gehen ueber dem Panel auf. Auf demselben Layer liegt, was
+        // zuletzt gezeigt wurde, oben -- also das danach geoeffnete Popout.
+        WlrLayershell.layer: WlrLayershell.Top
+        content: Component {
+            TodoPanel {}
+        }
+        onRevealed: root.opened()
+        onAboutToHide: root.closed()
+    }
 
-    // Offen oder zu, fuer den schnelleren Abgleich und das Zuruecksetzen.
-    property bool popoutOpen: false
+    signal focusInput
 
-    popoutContent: Component {
-        PopoutComponent {
-            id: popout
+    function opened() {
+        root.refresh()
+        // Das Eingabefeld bekommt den Fokus, sobald das Panel steht, damit
+        // man nach Super+M direkt lostippen kann.
+        Qt.callLater(() => root.focusInput())
+    }
 
-            headerText: "Todos"
-            detailsText: !root.reachable ? "Super Productivity nicht erreichbar"
-                : root.currentTask ? "▶ " + Model.truncate(root.currentTask.title, 48)
-                : Model.countOpen(root.tasks, Model.FILTER_TODAY, root.now) + " heute · "
-                    + Model.countOpen(root.tasks, Model.FILTER_ALL, root.now) + " offen"
-            showCloseButton: true
+    // Vor dem Zuruecksetzen: eine offene Notiz noch speichern.
+    signal commitNotes
 
-            Component.onCompleted: root.opened(popout)
-            Connections {
-                target: popout.parentPopout
-                function onShouldBeVisibleChanged() {
-                    if (popout.parentPopout.shouldBeVisible) root.opened(popout)
-                    else root.closed()
-                }
+    function closed() {
+        root.commitNotes()
+        root.editingId = ""
+        root.armedDeleteId = ""
+        root.notesEditingId = ""
+    }
+
+    // Inline-Komponenten gehoeren in das Wurzelobjekt der Datei, nicht in ein
+    // verschachteltes Component -- dort werden sie klaglos ignoriert.
+
+    component TodoPanel: Item {
+        id: panel
+
+        Connections {
+            target: root
+            function onFocusInput() {
+                newTask.forceActiveFocus()
             }
+        }
 
-            headerActions: Component {
+        Keys.onEscapePressed: slideout.hide()
+
+        Column {
+            id: top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: Theme.spacingL
+            spacing: Theme.spacingM
+
+            // Kopf: Titel, Zaehler bzw. laufender Task, Knoepfe.
+            Item {
+                width: parent.width
+                height: Math.max(heading.implicitHeight, headButtons.height)
+
+                Column {
+                    id: heading
+                    anchors.left: parent.left
+                    anchors.right: headButtons.left
+                    anchors.rightMargin: Theme.spacingS
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    StyledText {
+                        text: "Todos"
+                        font.pixelSize: Theme.fontSizeLarge
+                        font.weight: Font.Medium
+                        color: Theme.surfaceText
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: !root.reachable ? "Super Productivity nicht erreichbar"
+                            : root.currentTask ? "▶ " + root.currentTask.title
+                            : Model.countOpen(root.tasks, Model.FILTER_TODAY, root.now) + " heute · "
+                                + Model.countOpen(root.tasks, Model.FILTER_ALL, root.now) + " offen"
+                        color: root.currentTask ? Theme.primary : Theme.surfaceVariantText
+                        font.pixelSize: Theme.fontSizeSmall
+                        elide: Text.ElideRight
+                    }
+                }
+
                 Row {
+                    id: headButtons
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: Theme.spacingXS
 
                     DankActionButton {
@@ -394,146 +541,109 @@ PluginComponent {
                         tooltipText: "Super Productivity öffnen"
                         onClicked: root.launchApp()
                     }
+
+                    DankActionButton {
+                        iconName: "close"
+                        tooltipText: "Schließen"
+                        onClicked: slideout.hide()
+                    }
                 }
             }
 
-            TodoPanel {
+            DankFilterChips {
                 width: parent.width
-                popout: popout
+                visible: root.reachable
+                model: root.chips
+                showCheck: false
+                chipHeight: 28
+                currentIndex: {
+                    for (var i = 0; i < root.chips.length; i++)
+                        if (root.chips[i].value === root.effectiveFilter) return i
+                    return 0
+                }
+                onSelectionChanged: index => {
+                    root.filter = root.chips[index].value
+                    newTask.forceActiveFocus()
+                }
             }
-        }
-    }
 
-    signal focusInput
-
-    function opened(popout) {
-        root.popoutOpen = true
-        root.refresh()
-        // Das Eingabefeld bekommt den Fokus, sobald das Popout steht, damit
-        // man nach Super+M direkt lostippen kann.
-        Qt.callLater(() => root.focusInput())
-    }
-
-    function closed() {
-        root.popoutOpen = false
-        root.editingId = ""
-        root.armedDeleteId = ""
-    }
-
-    // Inline-Komponenten gehoeren in das Wurzelobjekt der Datei, nicht in ein
-    // verschachteltes Component -- dort werden sie klaglos ignoriert.
-
-    component TodoPanel: Column {
-        id: panel
-        property var popout: null
-        spacing: Theme.spacingM
-
-        // Hoechstens so hoch, dass das Popout nicht ueber den Schirm waechst;
-        // darunter waechst die Liste mit ihrem Inhalt.
-        readonly property real maxListHeight: 460
-
-        function close() {
-            if (panel.popout && panel.popout.closePopout) panel.popout.closePopout()
-        }
-
-        Connections {
-            target: root
-            function onFocusInput() {
-                newTask.forceActiveFocus()
-            }
-        }
-
-        Keys.onEscapePressed: panel.close()
-
-        DankFilterChips {
-            width: parent.width
-            visible: root.reachable
-            model: root.chips
-            showCheck: false
-            chipHeight: 28
-            currentIndex: {
-                for (var i = 0; i < root.chips.length; i++)
-                    if (root.chips[i].value === root.effectiveFilter) return i
-                return 0
-            }
-            onSelectionChanged: index => {
-                root.filter = root.chips[index].value
-                newTask.forceActiveFocus()
-            }
-        }
-
-        DankTextField {
-            id: newTask
-            width: parent.width
-            visible: root.reachable
-            leftIconName: "add"
-            placeholderText: "Neuer Task → " + root.targetLabel
-            hidePlaceholderOnFocus: false
-            onAccepted: {
-                if (root.addTask(text)) newTask.clear()
-            }
-            Keys.onEscapePressed: panel.close()
-        }
-
-        StyledText {
-            visible: root.actionError !== ""
-            width: parent.width
-            text: root.actionError
-            color: Theme.error
-            font.pixelSize: Theme.fontSizeSmall
-            wrapMode: Text.WordWrap
-        }
-
-        // ------------------------------------------------ SP nicht erreichbar
-
-        Column {
-            visible: !root.reachable
-            width: parent.width
-            topPadding: Theme.spacingL
-            bottomPadding: Theme.spacingL
-            spacing: Theme.spacingM
-
-            DankIcon {
-                anchors.horizontalCenter: parent.horizontalCenter
-                name: root.errorCode === "NO_TOKEN" ? "key_off" : "cloud_off"
-                size: 40
-                color: Theme.surfaceVariantText
+            DankTextField {
+                id: newTask
+                width: parent.width
+                visible: root.reachable
+                leftIconName: "add"
+                placeholderText: "Neuer Task → " + root.targetLabel
+                hidePlaceholderOnFocus: false
+                onAccepted: {
+                    if (root.addTask(text)) newTask.clear()
+                }
+                Keys.onEscapePressed: slideout.hide()
             }
 
             StyledText {
+                visible: root.actionError !== ""
                 width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                text: root.errorMessage
-                color: Theme.surfaceText
-            }
-
-            StyledText {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                visible: root.errorCode === "NO_TOKEN"
-                text: "Einstellungen → Sonstiges → „Enable local REST API“"
-                color: Theme.surfaceVariantText
+                text: root.actionError
+                color: Theme.error
                 font.pixelSize: Theme.fontSizeSmall
+                wrapMode: Text.WordWrap
             }
 
-            DankButton {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: launchRetry.running ? "Startet …" : "Super Productivity starten"
-                iconName: "play_arrow"
-                enabled: !launchRetry.running
-                onClicked: root.launchApp()
+            // -------------------------------------------- SP nicht erreichbar
+
+            Column {
+                visible: !root.reachable
+                width: parent.width
+                topPadding: Theme.spacingL
+                bottomPadding: Theme.spacingL
+                spacing: Theme.spacingM
+
+                DankIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    name: root.errorCode === "NO_TOKEN" ? "key_off" : "cloud_off"
+                    size: 40
+                    color: Theme.surfaceVariantText
+                }
+
+                StyledText {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    text: root.errorMessage
+                    color: Theme.surfaceText
+                }
+
+                StyledText {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    visible: root.errorCode === "NO_TOKEN"
+                    text: "Einstellungen → Sonstiges → „Enable local REST API“"
+                    color: Theme.surfaceVariantText
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                DankButton {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: launchRetry.running ? "Startet …" : "Super Productivity starten"
+                    iconName: "play_arrow"
+                    enabled: !launchRetry.running
+                    onClicked: root.launchApp()
+                }
             }
         }
 
-        // ------------------------------------------------------------- Liste
+        // ----------------------------------------------------------- Liste
+        // Fuellt den Rest des Panels bis zur Unterkante.
 
         ListView {
             id: list
             visible: root.reachable
-            width: parent.width
-            height: count === 0 ? 48 : Math.min(contentHeight, panel.maxListHeight)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: top.bottom
+            anchors.topMargin: Theme.spacingM
+            anchors.bottom: parent.bottom
             clip: true
             spacing: 2
             boundsBehavior: Flickable.StopAtBounds
@@ -550,7 +660,8 @@ PluginComponent {
             }
 
             StyledText {
-                anchors.centerIn: parent
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Theme.spacingL
                 visible: root.loaded && list.count === 0
                 text: root.effectiveFilter === Model.FILTER_TODAY ? "Für heute ist nichts offen." : "Nichts offen."
                 color: Theme.surfaceVariantText
@@ -632,124 +743,261 @@ PluginComponent {
         readonly property bool editing: root.editingId !== "" && root.editingId === row.id
         readonly property bool armed: root.armedDeleteId !== "" && root.armedDeleteId === row.id
         readonly property bool showActions: hover.containsMouse || armed || row.isCurrent === true
-        height: 36
+        readonly property bool open: root.openId !== "" && root.openId === row.id
+        readonly property bool hasNotes: String(row.notes || "").trim() !== ""
+        height: 36 + (open ? notesBox.height + Theme.spacingXS : 0)
 
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.cornerRadius
-            color: taskItem.row.isCurrent ? Theme.withAlpha(Theme.primary, 0.12)
-                : hover.containsMouse ? Theme.surfaceHover : "transparent"
-        }
-
-        MouseArea {
-            id: hover
-            anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.NoButton
-        }
-
-        DankIcon {
-            id: check
+        // Kopfzeile des Tasks; darunter klappen die Notizen auf.
+        Item {
+            id: head
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingXS + (taskItem.row.depth || 0) * 22
-            anchors.verticalCenter: parent.verticalCenter
-            name: taskItem.row.isDone ? "check_box" : "check_box_outline_blank"
-            filled: taskItem.row.isDone === true
-            size: 20
-            color: taskItem.row.isDone ? Theme.primary : Theme.surfaceVariantText
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 36
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.cornerRadius
+                color: taskItem.row.isCurrent ? Theme.withAlpha(Theme.primary, 0.12)
+                    : hover.containsMouse ? Theme.surfaceHover : "transparent"
+            }
 
             MouseArea {
+                id: hover
                 anchors.fill: parent
-                anchors.margins: -6
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.setDone(taskItem.row.id, !taskItem.row.isDone)
+                hoverEnabled: true
+                acceptedButtons: Qt.NoButton
             }
+
+            DankIcon {
+                id: check
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.spacingXS + (taskItem.row.depth || 0) * 22
+                anchors.verticalCenter: parent.verticalCenter
+                name: taskItem.row.isDone ? "check_box" : "check_box_outline_blank"
+                filled: taskItem.row.isDone === true
+                size: 20
+                color: taskItem.row.isDone ? Theme.primary : Theme.surfaceVariantText
+
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setDone(taskItem.row.id, !taskItem.row.isDone)
+                }
+            }
+
+            StyledText {
+                id: titleText
+                visible: !taskItem.editing
+                anchors.left: check.right
+                anchors.leftMargin: Theme.spacingS
+                anchors.right: meta.left
+                anchors.rightMargin: Theme.spacingS
+                anchors.verticalCenter: parent.verticalCenter
+                text: taskItem.row.title || ""
+                elide: Text.ElideRight
+                maximumLineCount: 1
+                color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.surfaceText
+                font.strikeout: taskItem.row.isDone === true
+
+                // Klick klappt den Task auf (Notizen), Doppelklick benennt um
+                // -- der Doppelklick klappt dabei auch auf, das stoert nicht.
+                // Abgehakt wird nur ueber die Checkbox.
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.toggleOpen(taskItem.row.id)
+                    onDoubleClicked: root.editingId = taskItem.row.id
+                }
+            }
+
+            DankTextField {
+                id: editField
+                visible: taskItem.editing
+                anchors.left: check.right
+                anchors.leftMargin: Theme.spacingS
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: 32
+                onVisibleChanged: {
+                    if (!visible) return
+                    text = taskItem.row.title || ""
+                    forceActiveFocus()
+                    selectAll()
+                }
+                onAccepted: root.rename(taskItem.row.id, text)
+                Keys.onEscapePressed: event => {
+                    root.editingId = ""
+                    event.accepted = true
+                }
+            }
+
+            Row {
+                id: meta
+                visible: !taskItem.editing
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.spacingXS
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.spacingXS
+
+                DankIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: taskItem.hasNotes && !taskItem.open && !taskItem.showActions
+                    name: "notes"
+                    size: 16
+                    color: Theme.surfaceVariantText
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: taskItem.row.due === "overdue" && !taskItem.showActions
+                    text: "überfällig"
+                    color: Theme.error
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !taskItem.showActions && Model.durationLabel(taskItem.row.timeSpent) !== ""
+                    text: Model.durationLabel(taskItem.row.timeSpent)
+                    color: Theme.surfaceVariantText
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                DankActionButton {
+                    visible: taskItem.showActions && !taskItem.row.isDone
+                    buttonSize: 28
+                    iconName: taskItem.row.isCurrent ? "stop" : "play_arrow"
+                    iconColor: taskItem.row.isCurrent ? Theme.primary : Theme.surfaceText
+                    tooltipText: taskItem.row.isCurrent ? "Zeiterfassung stoppen" : "Zeiterfassung starten"
+                    onClicked: root.toggleTracking(taskItem.row.id)
+                }
+
+                DankActionButton {
+                    visible: taskItem.showActions
+                    buttonSize: 28
+                    iconName: taskItem.armed ? "delete_forever" : "delete"
+                    iconColor: taskItem.armed ? Theme.error : Theme.surfaceVariantText
+                    tooltipText: taskItem.armed ? "Nochmal klicken zum Löschen" : "Löschen"
+                    onClicked: root.requestDelete(taskItem.row.id)
+                }
+            }
+        }
+
+        NotesBox {
+            id: notesBox
+            visible: taskItem.open
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.spacingXS + (taskItem.row.depth || 0) * 22 + 20 + Theme.spacingS
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.spacingXS
+            anchors.top: head.bottom
+            anchors.topMargin: Theme.spacingXS
+            taskId: taskItem.row.id || ""
+            notes: taskItem.row.notes || ""
+        }
+    }
+
+    // Notizen eines aufgeklappten Tasks. Sie sind in SP Markdown: angezeigt
+    // formatiert (Listen, fett, Checklisten), ein Klick schaltet auf das rohe
+    // Markdown zum Bearbeiten. Gespeichert wird 800 ms nach der letzten
+    // Eingabe, beim Verlassen des Felds, mit Esc und beim Schliessen des
+    // Panels (root.commitNotes).
+    component NotesBox: Item {
+        id: box
+        property string taskId: ""
+        property string notes: ""
+        readonly property bool editing: root.notesEditingId !== "" && root.notesEditingId === taskId
+        // Stand beim Beginn des Bearbeitens: dagegen prueft notesPatch.
+        property string savedNotes: ""
+
+        height: editing ? editor.height : Math.max(view.implicitHeight, 24)
+
+        function beginEdit() {
+            box.savedNotes = box.notes
+            editor.text = box.notes
+            root.notesEditingId = box.taskId
+            Qt.callLater(() => {
+                editor.forceActiveFocus()
+                editor.cursorPosition = editor.text.length
+            })
+        }
+
+        function commit() {
+            if (!box.editing) return
+            root.saveNotes(box.taskId, box.savedNotes, editor.text)
+            box.savedNotes = Model.normalizeNotes(editor.text)
+        }
+
+        function endEdit() {
+            box.commit()
+            saveTimer.stop()
+            root.notesEditingId = ""
+            root.refresh()
+        }
+
+        Connections {
+            target: root
+            function onCommitNotes() {
+                box.commit()
+            }
+        }
+
+        // Zugeklappt oder aus der Liste gescrollt: offene Aenderung nicht
+        // verlieren.
+        onVisibleChanged: if (!visible && box.editing) box.endEdit()
+        Component.onDestruction: box.commit()
+
+        Timer {
+            id: saveTimer
+            interval: 800
+            onTriggered: box.commit()
         }
 
         StyledText {
-            id: titleText
-            visible: !taskItem.editing
-            anchors.left: check.right
-            anchors.leftMargin: Theme.spacingS
-            anchors.right: meta.left
-            anchors.rightMargin: Theme.spacingS
-            anchors.verticalCenter: parent.verticalCenter
-            text: taskItem.row.title || ""
-            elide: Text.ElideRight
-            maximumLineCount: 1
-            color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.surfaceText
-            font.strikeout: taskItem.row.isDone === true
+            id: view
+            visible: !box.editing
+            width: parent.width
+            text: box.notes.trim() !== "" ? box.notes : "Notiz hinzufügen …"
+            textFormat: box.notes.trim() !== "" ? Text.MarkdownText : Text.PlainText
+            wrapMode: Text.Wrap
+            color: box.notes.trim() !== "" ? Theme.surfaceText : Theme.surfaceVariantText
+            linkColor: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
 
-            // Doppelklick benennt um. Abgehakt wird nur ueber die Checkbox:
-            // ein Einfachklick auf den Titel kaeme beim Doppelklick sonst
-            // vorher an und haette den Task schon erledigt.
+            // Links oeffnen, sonst bearbeiten.
             MouseArea {
                 anchors.fill: parent
-                onDoubleClicked: root.editingId = taskItem.row.id
+                cursorShape: view.linkAt(mouseX, mouseY) !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
+                onClicked: mouse => {
+                    var link = view.linkAt(mouse.x, mouse.y)
+                    if (link !== "") root.openLink(link)
+                    else box.beginEdit()
+                }
             }
         }
 
-        DankTextField {
-            id: editField
-            visible: taskItem.editing
-            anchors.left: check.right
-            anchors.leftMargin: Theme.spacingS
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            height: 32
-            onVisibleChanged: {
-                if (!visible) return
-                text = taskItem.row.title || ""
-                forceActiveFocus()
-                selectAll()
-            }
-            onAccepted: root.rename(taskItem.row.id, text)
-            Keys.onEscapePressed: event => {
-                root.editingId = ""
-                event.accepted = true
-            }
-        }
+        DankTextEdit {
+            id: editor
+            visible: box.editing
+            width: parent.width
+            // Waechst mit den Zeilen, 4 bis 14; darueber scrollt das Feld.
+            height: Math.round(Theme.fontSizeSmall * 1.5
+                * Math.max(4, Math.min(14, editor.text.split("\n").length + 1)))
+                + Theme.spacingS * 2
+            font.pixelSize: Theme.fontSizeSmall
+            placeholderText: "Notiz (Markdown) …"
+            keyForwardTargets: [editorKeys]
+            onTextEdited: saveTimer.restart()
+            onEditingFinished: if (box.editing) box.endEdit()
 
-        Row {
-            id: meta
-            visible: !taskItem.editing
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.spacingXS
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingXS
-
-            StyledText {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: taskItem.row.due === "overdue" && !taskItem.showActions
-                text: "überfällig"
-                color: Theme.error
-                font.pixelSize: Theme.fontSizeSmall
-            }
-
-            StyledText {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !taskItem.showActions && Model.durationLabel(taskItem.row.timeSpent) !== ""
-                text: Model.durationLabel(taskItem.row.timeSpent)
-                color: Theme.surfaceVariantText
-                font.pixelSize: Theme.fontSizeSmall
-            }
-
-            DankActionButton {
-                visible: taskItem.showActions && !taskItem.row.isDone
-                buttonSize: 28
-                iconName: taskItem.row.isCurrent ? "stop" : "play_arrow"
-                iconColor: taskItem.row.isCurrent ? Theme.primary : Theme.surfaceText
-                tooltipText: taskItem.row.isCurrent ? "Zeiterfassung stoppen" : "Zeiterfassung starten"
-                onClicked: root.toggleTracking(taskItem.row.id)
-            }
-
-            DankActionButton {
-                visible: taskItem.showActions
-                buttonSize: 28
-                iconName: taskItem.armed ? "delete_forever" : "delete"
-                iconColor: taskItem.armed ? Theme.error : Theme.surfaceVariantText
-                tooltipText: taskItem.armed ? "Nochmal klicken zum Löschen" : "Löschen"
-                onClicked: root.requestDelete(taskItem.row.id)
+            Item {
+                id: editorKeys
+                Keys.onEscapePressed: event => {
+                    box.endEdit()
+                    event.accepted = true
+                }
             }
         }
     }

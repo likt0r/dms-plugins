@@ -196,6 +196,19 @@ test("Dauer: leer bei null, Minuten, Stunden", () => {
   assert.equal(Model.durationLabel(65 * 60000), "1:05 h")
 })
 
+test("Notizen: fehlendes Feld ist leer, Patch nur bei Aenderung", () => {
+  assert.equal(Model.notesOf({ id: "a" }), "")
+  assert.equal(Model.notesOf({ notes: "- [x] eins" }), "- [x] eins")
+  assert.equal(Model.hasNotes({ notes: "  \n " }), false)
+  assert.equal(Model.hasNotes({ notes: "x" }), true)
+  assert.equal(Model.normalizeNotes("a\r\nb\r\n\n  "), "a\nb")
+  assert.equal(Model.notesPatch("a\nb", "a\r\nb\n"), null, "nur Zeilenenden/Leerraum am Ende: nichts zu speichern")
+  assert.deepEqual(Model.notesPatch("", "neu"), { notes: "neu" })
+  assert.deepEqual(Model.notesPatch("alt", ""), { notes: "" }, "Leeren ist eine Aenderung")
+  assert.equal(Model.buildRows([{ id: "t", title: "T", projectId: "INBOX_PROJECT", notes: "n" }], [], Model.FILTER_ALL, NOW, {})
+    .find(r => r.kind === "task").notes, "n")
+})
+
 // ---- Verdrahtung: Manifest, Settings und Widget passen zusammen.
 
 test("Manifest, Settings und Widget sind konsistent", () => {

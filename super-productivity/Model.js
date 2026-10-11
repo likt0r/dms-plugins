@@ -176,7 +176,8 @@ function taskRow(task, depth, now, currentId) {
     due: dueBadge(task, now),
     timeSpent: Number(task.timeSpent) || 0,
     isCurrent: task.id === currentId,
-    subCount: (task.subTaskIds || []).length
+    subCount: (task.subTaskIds || []).length,
+    notes: notesOf(task)
   }
 }
 
@@ -272,6 +273,31 @@ function createBody(title, filter, now, defaultProjectId) {
   return body
 }
 
+// ---- Notizen
+
+// SP speichert Notizen als Markdown-Text im Feld "notes". Ohne Notiz fehlt
+// das Feld in der API-Antwort ganz.
+function notesOf(task) {
+  var n = task && task.notes
+  return typeof n === "string" ? n : ""
+}
+
+function hasNotes(task) {
+  return notesOf(task).trim() !== ""
+}
+
+// Was gespeichert wird: Windows-Zeilenenden vereinheitlicht, Leerraum am
+// Ende weg -- sonst landet jedes versehentliche Enter in SP.
+function normalizeNotes(text) {
+  return String(text || "").replace(/\r\n?/g, "\n").replace(/\s+$/, "")
+}
+
+// Body fuer PATCH /tasks/:id, oder null, wenn sich nichts geaendert hat.
+function notesPatch(oldNotes, newText) {
+  var next = normalizeNotes(newText)
+  return next === normalizeNotes(oldNotes) ? null : { notes: next }
+}
+
 // ---- Anzeige
 
 // "25 min", "1:05 h" -- leer bei null, damit Zeilen ohne erfasste Zeit
@@ -307,6 +333,10 @@ if (typeof module !== "undefined") {
     normalizeFilter: normalizeFilter,
     buildRows: buildRows,
     createBody: createBody,
+    notesOf: notesOf,
+    hasNotes: hasNotes,
+    normalizeNotes: normalizeNotes,
+    notesPatch: notesPatch,
     durationLabel: durationLabel,
     truncate: truncate
   }

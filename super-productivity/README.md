@@ -2,10 +2,14 @@
 
 Todos in der DankMaterialShell-Bar, mit [Super Productivity](https://super-productivity.com)
 als Backend. Die Pille zeigt, wie viel heute ansteht. Ein Klick oder Super+M
-klappt darunter ein Popout von oben auf, wie bei Benachrichtigungen oder WLAN.
-Dort legt man Tasks an und hakt sie ab. Geht ein anderes Popout auf
-(Kontrollzentrum, WLAN, Benachrichtigungen …), schließt sich das Todo-Popout
-und umgekehrt. Das regelt DMS selbst.
+klappt von der Bildschirmkante ein Panel herein, wie das Notepad von DMS. Dort
+legt man Tasks an, hakt sie ab und schreibt Notizen dazu. Geht ein Popout auf
+(Kontrollzentrum, WLAN, VPN …), liegt es über dem Panel, und das Panel bleibt
+offen.
+
+Dafür meldet sich das Panel nicht beim `PopoutManager` von DMS an, und es liegt
+fest auf dem Layer `Top`. Im Frame-Modus würde `DankSlideout` sonst auf
+`Overlay` gehen, also über die Popouts.
 
 Die Daten bleiben in Super Productivity. Das Plugin spricht nur mit dessen
 **lokaler REST-API** und speichert selbst nichts. Den Sync (bei mir per
@@ -35,11 +39,12 @@ der Electron-Hauptprozess. Einen versteckten Start kennt SP 19 auch nicht.
 **Bar:** Das Icon zeigt die Zahl offener Tasks, je nach Einstellung für heute
 (fällig und überfällig) oder alle. Läuft die Zeiterfassung, wird das Icon zur
 Uhr, und der Task steht daneben. Ein **Klick** (oder **Super+M**, siehe
-`niri/config.kdl` im dotfiles-Repo) öffnet und schließt das Popout, ein
-**Rechtsklick** holt SP nach vorn. Im Kopf des Popouts stehen die Zähler
-bzw. der laufende Task sowie Knöpfe für Neu laden und SP öffnen.
+`niri/config.kdl` im dotfiles-Repo) öffnet und schließt das Panel, ein
+**Rechtsklick** holt SP nach vorn. Im Kopf des Panels stehen die Zähler
+bzw. der laufende Task sowie Knöpfe für Neu laden, SP öffnen und Schließen.
+Die Seite (rechts/links) und die Breite stehen in den Einstellungen.
 
-**Popout:**
+**Panel:**
 
 - Chips oben: *Heute*, *Alle* und je ein Chip pro Projekt, jeweils mit der
   Zahl offener Tasks.
@@ -50,6 +55,13 @@ bzw. der laufende Task sowie Knöpfe für Neu laden und SP öffnen.
   - Unter einem Projekt landet er in diesem Projekt.
   - Das Ziel steht im Platzhalter.
 - Checkbox: abhaken bzw. zurückholen.
+- **Klick** auf einen Titel klappt den Task auf. Darunter stehen seine
+  **Notizen**, formatiert angezeigt (sie sind in SP Markdown: Listen, fett,
+  Checklisten, Links). Ein Klick in die Notiz schaltet auf das rohe Markdown
+  zum Bearbeiten. Gespeichert wird 800 ms nach der letzten Eingabe, beim
+  Verlassen des Felds, mit Esc und beim Schließen des Panels. Links öffnen per
+  `xdg-open`. Ein kleines Notiz-Icon zeigt, dass ein zugeklappter Task Notizen
+  hat.
 - **Doppelklick** auf einen Titel benennt den Task um (Enter speichert, Esc
   bricht ab).
 - Beim Überfahren erscheinen ▶/■ für die Zeiterfassung und ein Papierkorb.
@@ -58,15 +70,15 @@ bzw. der laufende Task sowie Knöpfe für Neu laden und SP öffnen.
   Reihenfolge wie in SP. Unteraufgaben stehen eingerückt darunter.
 - *Erledigt (n)* am Ende klappt die erledigten Tasks auf. Unter *Heute* sind
   das die heute erledigten.
-- Läuft SP nicht, zeigt das Popout einen Startknopf statt der Liste.
+- Läuft SP nicht, zeigt das Panel einen Startknopf statt der Liste.
 
-Esc schließt das Popout. Das Eingabefeld hat beim Öffnen den Fokus, man kann
+Esc schließt das Panel; im Notizfeld klappt Esc nur die Bearbeitung zu. Das Eingabefeld hat beim Öffnen den Fokus, man kann
 also direkt lostippen.
 
 ## IPC
 
 ```sh
-dms ipc call superProductivity toggle        # Popout auf/zu (an der Pille)
+dms ipc call superProductivity toggle        # Panel auf/zu (fokussierter Schirm)
 dms ipc call superProductivity add "Milch"   # Task im aktuellen Filter anlegen
 dms ipc call superProductivity refresh
 dms ipc call superProductivity status        # "2 heute, 11 offen, läuft: …"
@@ -86,7 +98,8 @@ Für den IPC gelten zwei Fallen wie bei den anderen Plugins:
 Die API kennt keine Push-Nachrichten. Das Plugin fragt deshalb bei SP nach:
 
 - alle *Abgleich im Hintergrund* Sekunden (Standard 60),
-- alle 10 s, solange das Popout offen ist,
+- alle 10 s, solange das Panel offen ist (nicht während eine Notiz
+  bearbeitet wird),
 - bei jedem Öffnen.
 
 Eigene Änderungen erscheinen sofort, danach gleicht das Plugin mit dem
@@ -96,7 +109,7 @@ das Eingabefeld nicht wegwirft.
 ## Aufbau
 
 ```
-TodoWidget.qml   Pille, Popout, Anfragen, IPC
+TodoWidget.qml   Pille, Slideout mit Notizen, Anfragen, IPC
 Model.js         Datenlogik: Heute/überfällig, Gruppierung, Chips, POST-Bodies
 Settings.qml     Einstellungen
 bin/sp-api       ein API-Aufruf: sp-api METHOD PFAD [JSON]
