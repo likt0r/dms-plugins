@@ -1,0 +1,205 @@
+#!/bin/bash
+#
+# Erinnerungen per systemd-Timer: Port von Omarchys bin/omarchy-reminder
+# (basecamp/omarchy, MIT) für DMS.
+#
+#   dms-reminder <wann> [nachricht]     wann: 15 | 90m | 1h30 | 45s | 14:30
+#   dms-reminder --seconds N [nachricht]  (so ruft das Widget auf)
+#   dms-reminder --silent …             ohne Ton beim Auslösen
+#   dms-reminder show [--json]
+#   dms-reminder cancel <unit>
+#   dms-reminder clear
+#
+# Jede Erinnerung ist ein transienter User-Timer "dms-reminder-<zeit>-<pid>".
+# Er überlebt einen Neustart der Shell, nicht aber einen des Rechners -- wie
+# bei Omarchy. Die Nachricht liegt daneben in $XDG_RUNTIME_DIR, die
+# Fälligkeit liest `show` aus systemctl list-timers.
+
+set -euo pipefail
+
+PREFIX="dms-reminder"
+REMINDER_DIR="${XDG_RUNTIME_DIR:-/tmp}/dms-reminders"
+SOUND="/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
+
+format_remaining() {
+  local seconds=$1
+  local hours=$((seconds / 3600))
+  local minutes=$(((seconds % 3600) / 60))
+  local remainder=$((seconds % 60))
+
+  if ((hours > 0)); then
+    ((minutes > 0)) && echo "${hours} h ${minutes} min" || echo "${hours} h"
+  elif ((minutes > 0)); then
+    echo "${minutes} min"
+  else
+    echo "${remainder} s"
+  fi
+}
+
+# Dieselben Formate wie parseDuration in Model.js, für den Aufruf von Hand.
+parse_when() {
+  local spec=${1// /}
+  spec=${spec,,}
+  local h m s target now
+
+  if [[ $spec =~ ^([0-9]{1,2})[:.]([0-9]{2})$ ]]; then
+    h=$((10#${BASH_REMATCH[1]}))
+    m=$((10#${BASH_REMATCH[2]}))
+    ((h < 24 && m < 60)) || return 1
+    now=$(date +%s)
+    target=$(date -d "$(printf '%02d:%02d' "$h" "$m")" +%s)
+    ((target <= now)) && target=$(date -d "tomorrow $(printf '%02d:%02d' "$h" "$m")" +%s)
+    echo $((target - now))
+  elif [[ $spec =~ ^([0-9]+)$ ]]; then
+    echo $((10#${BASH_REMATCH[1]} * 60))
+  elif [[ $spec =~ ^([0-9]+)s$ ]]; then
+    echo $((10#${BASH_REMATCH[1]}))
+  elif [[ $spec =~ ^([0-9]+)m(in)?$ ]]; then
+    echo $((10#${BASH_REMATCH[1]} * 60))
+  elif [[ $spec =~ ^([0-9]+)h(([0-9]+)(m|min)?)?$ ]]; then
+    echo $((10#${BASH_REMATCH[1]} * 3600 + 10#${BASH_REMATCH[3]:-0} * 60))
+  else
+    return 1
+  fi
+}
+
+active_reminder_timers() {
+  local now=${1:-$(date +%s)}
+  local timer next
+
+  while IFS=$'\t' read -r timer next; do
+    [[ -z $timer || -z $next ]] && continue
+    next=$((next / 1000000))
+    ((next <= now)) && continue
+    printf "%s\t%s\n" "$timer" "$next"
+  done < <(systemctl --user list-timers --all --output=json "$PREFIX-*.timer" 2>/dev/null | jq -r 'sort_by(.next) | .[] | [.unit, .next] | @tsv')
+}
+
+refresh_widget() {
+  dms ipc call reminder refresh >/dev/null 2>&1 || true
+}
+
+show_json() {
+  local now=$(date +%s)
+  local timer next unit message items=()
+
+  while IFS=$'\t' read -r timer next; do
+    unit=${timer%.timer}
+    message=""
+    [[ -f $REMINDER_DIR/$unit.message ]] && message=$(<"$REMINDER_DIR/$unit.message")
+    items+=("$(jq -cn --arg unit "$unit" --arg message "$message" --argjson at "$next" \
+      --arg atTime "$(date -d "@$next" +%-H:%M)" '{unit:$unit,message:$message,at:$at,atTime:$atTime}')")
+  done < <(active_reminder_timers "$now")
+
+  printf '%s\n' "${items[@]}" | jq -cs --argjson now "$now" 'map(select(. != null)) | {now:$now,count:length,reminders:.}'
+}
+
+show_text() {
+  local now=$(date +%s)
+  local timer next unit message body=""
+
+  while IFS=$'\t' read -r timer next; do
+    unit=${timer%.timer}
+    message="Erinnerung"
+    [[ -f $REMINDER_DIR/$unit.message ]] && message=$(<"$REMINDER_DIR/$unit.message")
+    body+="$message in $(format_remaining $((next - now))) ($(date -d "@$next" +%-H:%M))"$'\n'
+  done < <(active_reminder_timers "$now")
+
+  if [[ -z $body ]]; then
+    echo "Keine Erinnerungen"
+  else
+    printf '%s' "$body"
+  fi
+}
+
+cancel_one() {
+  local unit=${1%.timer}
+  [[ $unit == "$PREFIX-"* ]] || { echo "Keine Erinnerung: $unit" >&2; exit 1; }
+  systemctl --user stop "$unit.timer" 2>/dev/null || true
+  rm -f "$REMINDER_DIR/$unit.message"
+  refresh_widget
+}
+
+clear_all() {
+  local units
+  units=$(systemctl --user list-timers --all --output=json "$PREFIX-*.timer" 2>/dev/null | jq -r '.[].unit')
+  [[ -n $units ]] && xargs -r systemctl --user stop <<<"$units" || true
+  rm -f "$REMINDER_DIR/$PREFIX"-*.message 2>/dev/null || true
+  refresh_widget
+}
+
+usage() {
+  echo "Aufruf: dms-reminder [--silent] <wann> [nachricht]   (wann: 15 | 90m | 1h30 | 45s | 14:30)"
+  echo "        dms-reminder [--silent] --seconds N [nachricht]"
+  echo "        dms-reminder show [--json]"
+  echo "        dms-reminder cancel <unit>"
+  echo "        dms-reminder clear"
+}
+
+case ${1:-} in
+show | list)
+  case ${2:-} in
+  -j | --json) show_json ;;
+  "") show_text ;;
+  *) usage; exit 1 ;;
+  esac
+  exit 0
+  ;;
+cancel)
+  [[ -n ${2:-} ]] || { usage; exit 1; }
+  cancel_one "$2"
+  exit 0
+  ;;
+clear)
+  clear_all
+  exit 0
+  ;;
+-h | --help)
+  usage
+  exit 0
+  ;;
+esac
+
+sound=1
+if [[ ${1:-} == --silent ]]; then
+  sound=0
+  shift
+fi
+
+if [[ ${1:-} == --seconds ]]; then
+  seconds=${2:-}
+  shift 2 || true
+else
+  seconds=$(parse_when "${1:-}") || seconds=""
+  shift || true
+fi
+
+if [[ ! $seconds =~ ^[0-9]+$ ]] || ((seconds == 0)); then
+  usage
+  exit 1
+fi
+
+message="$*"
+[[ -n $message ]] || message="Deine $(format_remaining "$seconds") sind um"
+
+set_at=$(date +%s)
+unit="$PREFIX-$set_at-$$"
+message_file="$REMINDER_DIR/$unit.message"
+mkdir -p "$REMINDER_DIR"
+printf "%s" "$message" >"$message_file"
+
+# Was beim Auslösen läuft: kritische Meldung (bleibt stehen), Ton, aufräumen,
+# Widget anstoßen. Alles mit `|| true`, damit ein fehlender Player nicht die
+# Meldung verschluckt.
+systemd-run --user --quiet --collect --on-active="${seconds}s" --unit="$unit" \
+  bash -c '
+    notify-send -u critical -a "Erinnerung" -i alarm-symbolic "Erinnerung" "$1" || true
+    if [[ $3 == 1 ]]; then
+      canberra-gtk-play -i alarm-clock-elapsed 2>/dev/null || pw-play "$4" 2>/dev/null || true
+    fi
+    rm -f "$2"
+    dms ipc call reminder refresh >/dev/null 2>&1 || true
+  ' bash "$message" "$message_file" "$sound" "$SOUND"
+
+refresh_widget
+echo "$unit $(date -d "@$((set_at + seconds))" +%-H:%M)"

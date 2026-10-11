@@ -26,6 +26,7 @@ platzieren.
 
 | Plugin | Typ | Zweck |
 |---|---|---|
+| [`reminder/`](reminder/) | widget | **Erinnerung** in der Bar-Mitte: Zeit (`15`, `1h30`, `45s`, `14:30`) und Grund eingeben, Countdown neben dem Wecker; faellig kommt eine Benachrichtigung, die stehen bleibt, mit Ton. Timer laufen als systemd-User-Timer. Nachbau von Omarchys Reminders. |
 | [`schalter/`](schalter/) | widget | **Umschalter-Gruppe** in der Bar-Mitte: Wachhalten, VPN, Diktat, Bildschirmaufnahme (Auswahl als HUD auf F10) und Benachrichtigungen. Aktive Icons stehen immer da, die uebrigen erscheinen beim Hovern. Ersatz fuer Omarchys `omarchy.indicators`. |
 | [`aufnahmeKachel/`](aufnahmeKachel/) | widget (Control Center) | Kachel fuer die Bildschirmaufnahme der schalter-Gruppe: Laufzeit, Klick = Auswahl/Stopp. |
 | [`diktatKachel/`](diktatKachel/) | widget (Control Center) | Kachel fuers Diktat (voxtype) der schalter-Gruppe. |
