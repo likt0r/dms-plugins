@@ -107,13 +107,23 @@ PluginComponent {
     // daran ist eine erste Fassung gescheitert: der Eintritt in die Aufnahme
     // landete im falschen Zweig, und am Ende wurde anzeigePhase auf "idle"
     // gesetzt statt stehenzubleiben.
+    //
+    // Den Puffer leert jeder NEUE Beginn einer Aufnahme, gemessen an der
+    // echten vorigen Phase -- nicht an anzeigePhase. Die bleibt nach dem Ende
+    // stehen (s. nachlauf), und nach einem Abbruch per Esc (recording -> idle,
+    // ohne transcribing) stand sie noch auf "recording": das naechste Diktat
+    // sah keinen Wechsel und zeigte die alte Wellenform weiter.
+    property bool warAufnahme: false
+
     onPhaseChanged: {
         const p = root.phase
         const aufnahme = p === "recording" || p === "streaming"
         const aktiv = aufnahme || p === "transcribing"
+        const neueAufnahme = aufnahme && !root.warAufnahme
+        root.warAufnahme = aufnahme
 
         if (aktiv) {
-            if (aufnahme && root.anzeigePhase !== p)
+            if (neueAufnahme)
                 root.pufferLeeren()
             root.anzeigePhase = p
             nachlauf.stop()
