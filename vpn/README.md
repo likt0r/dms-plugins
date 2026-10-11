@@ -168,6 +168,18 @@ Fehler meldet DMS als Toast, Passwörter fragt DMS ab. Proton über
 Ausgabe (Exit 2). Läuft die Proton-App, verweigert die CLI mit Exit 0. Deshalb
 liest das Widget die Ausgabe und verlässt sich nicht auf den Exit-Code.
 
+**Abbruch, etwa nach dem Ruhezustand.** Ist der Kill Switch aus, schaltet
+`protonvpn connect` trotzdem einen IPv6-Leckschutz ein: die NM-Verbindung
+`pvpn-killswitch-ipv6` mit DNS `::1` und negativer DNS-Priorität. Solange tun0
+fehlt, läuft damit jede Namensauflösung ins Leere. Wegräumen würde ihn nur ein
+Proton-Prozess, der das Trennen mitbekommt. Die CLI läuft nach dem Verbinden
+aber nicht mehr. Verschwindet die Proton-Verbindung, ohne dass das Widget
+getrennt hat, startet es deshalb `bin/proton-recover`. Steht der Leckschutz
+noch, wartet das Skript auf eine echte Standardroute und verbindet neu mit
+demselben Server. Klappt das nicht, löscht es den Leckschutz, damit das Netz
+wenigstens ohne VPN geht, und meldet das als Toast. Ein `flock` verhindert,
+dass mehrere Schirme gleichzeitig neu verbinden.
+
 **Standorte.** Die Proton-Bibliothek speichert die Serverliste unter
 `~/.cache/Proton/VPN/serverlist.json` (rund 20 MB, über 17 000 Server).
 `bin/proton-locations` fasst sie je Land und Stadt zusammen: Server online,

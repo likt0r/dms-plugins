@@ -48,6 +48,21 @@ PluginComponent {
     property string protonAction: ""
     readonly property string protonState: root.protonBusy ? "busy" : Model.entryState(root.protonEntry)
 
+    // Bricht der Tunnel ab, ohne dass wir getrennt haben (meist nach dem
+    // Ruhezustand), bleibt Protons IPv6-Leckschutz stehen und schluckt alles
+    // DNS. bin/proton-recover verbindet dann neu oder räumt ihn weg.
+    property var lastProtonTarget: null
+    onProtonEntryChanged: {
+        if (root.protonEntry) {
+            root.lastProtonTarget = Model.parseTarget(Model.protonServer(root.protonEntry));
+            return;
+        }
+        const target = root.lastProtonTarget;
+        root.lastProtonTarget = null;
+        if (target && !root.protonBusy && root.protonAction !== "disconnect" && root.protonUsable)
+            root.protonRecover(target);
+    }
+
     property var locations: ({ countries: [], error: "", fetchedAt: 0 })
     readonly property var countries: root.locations.countries || []
     property var recents: []
@@ -185,7 +200,7 @@ PluginComponent {
     }
 
     function protonConnect(target) {
-        if (!root.protonUsable || protonProc.running)
+        if (!root.protonUsable || protonProc.running || recoverProc.running)
             return;
         root.protonBusy = true;
         root.protonAction = "connect";
@@ -202,6 +217,15 @@ PluginComponent {
         protonProc.target = null;
         protonProc.command = ["protonvpn", "disconnect"];
         protonProc.running = true;
+    }
+
+    function protonRecover(target) {
+        if (protonProc.running || recoverProc.running)
+            return;
+        root.protonBusy = true;
+        root.protonAction = "connect";
+        recoverProc.command = [root.recoverPath].concat(Model.connectArgs(target).slice(2));
+        recoverProc.running = true;
     }
 
     function toggleProton() {
@@ -259,6 +283,11 @@ PluginComponent {
 
     readonly property string helperPath: {
         const url = Qt.resolvedUrl("bin/proton-locations").toString();
+        return url.indexOf("file://") === 0 ? url.substring(7) : url;
+    }
+
+    readonly property string recoverPath: {
+        const url = Qt.resolvedUrl("bin/proton-recover").toString();
         return url.indexOf("file://") === 0 ? url.substring(7) : url;
     }
 
@@ -362,6 +391,23 @@ PluginComponent {
                 // connect lädt eine veraltete Serverliste nach; dann auch die
                 // Standorte neu zusammenfassen (der Helfer prüft das mtime).
                 root.refreshLocations(false);
+            });
+        }
+    }
+
+    // Exit 2 heißt: eine andere Instanz (zweiter Schirm) erledigt das schon.
+    Process {
+        id: recoverProc
+        stdout: StdioCollector {
+            id: recoverOut
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                root.protonBusy = false;
+                if (exitCode === 1)
+                    ToastService.showWarning("Proton VPN", recoverOut.text.trim());
+                DMSNetworkService.refreshVpnActive();
             });
         }
     }

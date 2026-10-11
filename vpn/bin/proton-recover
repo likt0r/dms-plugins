@@ -1,0 +1,52 @@
+#!/bin/sh
+# Proton-Verbindung nach einem unerwarteten Abbruch wiederherstellen.
+#
+#   proton-recover [protonvpn-connect-Argumente …]
+#
+# Warum es das braucht: `protonvpn connect` schaltet bei abgeschaltetem Kill
+# Switch einen IPv6-Leckschutz ein -- die NM-Verbindung "pvpn-killswitch-ipv6"
+# mit DNS ::1 und dns-priority -1400. Die negative Priorität macht sie zum
+# einzigen DNS-Weg, solange tun0 fehlt. Abgebaut wird sie nur vom Proton-
+# Prozess, der das Trennen mitbekommt (proton/vpn/connection/states.py,
+# Disconnected). Die CLI ist nach dem Verbinden aber beendet. Stirbt der Tunnel
+# ohne sie -- typisch nach dem Ruhezustand: OpenVPN läuft in den
+# ping-restart und beendet sich --, bleibt der Leckschutz stehen und
+# nichts löst mehr Namen auf.
+#
+# Ablauf: steht der Leckschutz nicht (sauber getrennt), passiert nichts. Sonst
+# auf eine echte Standardroute warten und neu verbinden; klappt das nicht,
+# den Leckschutz entfernen, damit wenigstens das Netz ohne VPN geht.
+#
+# Exit: 0 nichts zu tun oder neu verbunden, 1 nur aufgeräumt (Grund auf
+# stdout), 2 läuft schon (anderer Schirm).
+
+LEAK=pvpn-killswitch-ipv6
+
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/vpnhub-proton-recover.lock"
+flock -n 9 || exit 2
+
+nmcli -t -f NAME connection show --active | grep -qx "$LEAK" || exit 0
+
+# Echte Standardroute: nicht über die Dummy-Geräte von Proton.
+online() {
+    ip -4 route show default | grep -v -q -e pvpn -e ipv6leak -e 'dev tun' -e '^$'
+}
+
+i=0
+while ! online && [ $i -lt 60 ]; do
+    sleep 1
+    i=$((i + 1))
+done
+
+if online; then
+    for _ in 1 2 3; do
+        if protonvpn connect "$@" >/dev/null 2>&1; then
+            exit 0
+        fi
+        sleep 5
+    done
+fi
+
+nmcli connection delete "$LEAK" >/dev/null 2>&1
+echo "Neu verbinden fehlgeschlagen – ohne VPN online"
+exit 1
