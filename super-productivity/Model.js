@@ -225,12 +225,12 @@ function buildRows(tasks, projects, filter, now, opts) {
       seen[p.id] = true
       var mine = roots.filter(function (t) { return t.projectId === p.id })
       if (!mine.length) return
-      rows.push({ kind: "header", id: "h:" + p.id, title: String(p.title || ""), color: projectColor(p), count: mine.length })
+      rows.push({ kind: "header", id: "h:" + p.id, title: String(p.title || ""), color: projectColor(p), count: mine.length, notes: projectNoteCount(p) })
       orderIn(p, mine).forEach(pushTree)
     })
     var rest = roots.filter(function (t) { return !seen[t.projectId] })
     if (rest.length) {
-      rows.push({ kind: "header", id: "h:other", title: "Sonstige", color: "", count: rest.length })
+      rows.push({ kind: "header", id: "h:other", title: "Sonstige", color: "", count: rest.length, notes: 0 })
       orderIn(null, rest).forEach(pushTree)
     }
   } else {
@@ -286,6 +286,18 @@ function hasNotes(task) {
   return notesOf(task).trim() !== ""
 }
 
+// Projekt-Notizen: die API liefert pro Projekt nur noteIds, die Notizen
+// selbst hat sie nicht (keine Route /notes). Fuer einen Marker reicht die Zahl.
+function projectNoteCount(project) {
+  return ((project && project.noteIds) || []).length
+}
+
+function projectById(projects, id) {
+  for (var i = 0; i < (projects || []).length; i++)
+    if (projects[i].id === id) return projects[i]
+  return null
+}
+
 // Was gespeichert wird: Windows-Zeilenenden vereinheitlicht, Leerraum am
 // Ende weg -- sonst landet jedes versehentliche Enter in SP.
 function normalizeNotes(text) {
@@ -334,6 +346,8 @@ if (typeof module !== "undefined") {
     buildRows: buildRows,
     createBody: createBody,
     notesOf: notesOf,
+    projectNoteCount: projectNoteCount,
+    projectById: projectById,
     hasNotes: hasNotes,
     normalizeNotes: normalizeNotes,
     notesPatch: notesPatch,

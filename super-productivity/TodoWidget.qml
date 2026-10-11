@@ -580,6 +580,27 @@ PluginComponent {
                 Keys.onEscapePressed: slideout.hide()
             }
 
+            // Unter einem Projekt-Chip gibt es keine Kopfzeile; der Marker
+            // steht dann hier.
+            Row {
+                readonly property var project: Model.projectById(root.projects, root.effectiveFilter)
+                readonly property int count: Model.projectNoteCount(project)
+                visible: root.reachable && count > 0
+                spacing: Theme.spacingXS
+
+                ProjectNotesMarker {
+                    anchors.verticalCenter: parent.verticalCenter
+                    count: parent.count
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: (parent.count === 1 ? "1 Projekt-Notiz" : parent.count + " Projekt-Notizen") + " in Super Productivity"
+                    color: Theme.surfaceVariantText
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+            }
+
             StyledText {
                 visible: root.actionError !== ""
                 width: parent.width
@@ -698,6 +719,7 @@ PluginComponent {
         }
 
         StyledText {
+            id: headTitle
             anchors.left: dot.right
             anchors.leftMargin: Theme.spacingS
             anchors.verticalCenter: parent.verticalCenter
@@ -705,6 +727,46 @@ PluginComponent {
             color: Theme.surfaceVariantText
             font.pixelSize: Theme.fontSizeSmall
             font.weight: Font.Medium
+        }
+
+        ProjectNotesMarker {
+            anchors.left: headTitle.right
+            anchors.leftMargin: Theme.spacingXS
+            anchors.verticalCenter: parent.verticalCenter
+            count: parent.row.notes || 0
+        }
+    }
+
+    // Marker fuer Projekt-Notizen. Lesen kann das Plugin sie nicht (die API
+    // liefert nur noteIds), darum holt ein Klick SP nach vorn.
+    component ProjectNotesMarker: Row {
+        id: marker
+        property int count: 0
+        visible: count > 0
+        spacing: 2
+
+        DankIcon {
+            anchors.verticalCenter: parent.verticalCenter
+            name: "sticky_note_2"
+            size: 14
+            color: Theme.primary
+        }
+
+        StyledText {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: marker.count > 1
+            text: String(marker.count)
+            color: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
+        }
+
+        MouseArea {
+            width: marker.width + 8
+            height: marker.height + 8
+            x: -4
+            y: -4
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.launchApp()
         }
     }
 
@@ -792,9 +854,11 @@ PluginComponent {
                 visible: !taskItem.editing
                 anchors.left: check.right
                 anchors.leftMargin: Theme.spacingS
-                anchors.right: meta.left
-                anchors.rightMargin: Theme.spacingS
                 anchors.verticalCenter: parent.verticalCenter
+                // So breit wie der Titel, damit der Notiz-Marker direkt
+                // dahinter sitzt; hoechstens bis vor die Meta-Spalte.
+                width: Math.max(0, Math.min(implicitWidth,
+                    meta.x - x - Theme.spacingS - (noteMarker.visible ? noteMarker.width + Theme.spacingXS : 0)))
                 text: taskItem.row.title || ""
                 elide: Text.ElideRight
                 maximumLineCount: 1
@@ -809,6 +873,26 @@ PluginComponent {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.toggleOpen(taskItem.row.id)
                     onDoubleClicked: root.editingId = taskItem.row.id
+                }
+            }
+
+            // Marker: der Task hat Notizen. Immer sichtbar, aufgeklappt gefuellt.
+            DankIcon {
+                id: noteMarker
+                visible: taskItem.hasNotes && !taskItem.editing
+                anchors.left: titleText.right
+                anchors.leftMargin: Theme.spacingXS
+                anchors.verticalCenter: parent.verticalCenter
+                name: "sticky_note_2"
+                filled: taskItem.open
+                size: 16
+                color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.primary
+
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.toggleOpen(taskItem.row.id)
                 }
             }
 
@@ -840,14 +924,6 @@ PluginComponent {
                 anchors.rightMargin: Theme.spacingXS
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.spacingXS
-
-                DankIcon {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: taskItem.hasNotes && !taskItem.open && !taskItem.showActions
-                    name: "notes"
-                    size: 16
-                    color: Theme.surfaceVariantText
-                }
 
                 StyledText {
                     anchors.verticalCenter: parent.verticalCenter

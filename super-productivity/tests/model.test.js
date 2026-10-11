@@ -209,6 +209,17 @@ test("Notizen: fehlendes Feld ist leer, Patch nur bei Aenderung", () => {
     .find(r => r.kind === "task").notes, "n")
 })
 
+test("Projekt-Notizen: Zahl aus noteIds, Kopfzeile traegt sie", () => {
+  assert.equal(Model.projectNoteCount({ noteIds: ["a", "b"] }), 2)
+  assert.equal(Model.projectNoteCount({}), 0)
+  const projects = [{ id: "P", title: "Privat", taskIds: ["t"], noteIds: ["n1"] }]
+  const tasks = [{ id: "t", title: "T", projectId: "P" }]
+  const header = Model.buildRows(tasks, projects, Model.FILTER_ALL, NOW, {}).find(r => r.kind === "header")
+  assert.equal(header.notes, 1)
+  assert.equal(Model.projectById(projects, "P").title, "Privat")
+  assert.equal(Model.projectById(projects, "X"), null)
+})
+
 // ---- Verdrahtung: Manifest, Settings und Widget passen zusammen.
 
 test("Manifest, Settings und Widget sind konsistent", () => {
