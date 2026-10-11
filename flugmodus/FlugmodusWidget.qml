@@ -52,6 +52,54 @@ PluginComponent {
         root.zustandBekannt = true
     }
 
+    // Nur ins Journal von dms.service: journalctl --user -u dms -g '\[flugmodus\]'
+    function protokoll(text) {
+        console.warn("[flugmodus] " + text)
+    }
+
+    // Volles Detail ins Log, der kurze Grund als Desktop-Benachrichtigung.
+    // Hier immer critical: haengt der Funk-Schalter, ist das Netz weg.
+    function melden(titel, text) {
+        root.protokoll(titel + ": " + text)
+        Quickshell.execDetached(["notify-send", "-a", "Flugmodus", "-i", "airplane-mode-symbolic",
+            "-u", "critical", titel, text])
+    }
+
+    function umschalten() {
+        if (schaltProc.running)
+            return
+        schaltProc.running = true
+    }
+
+    // Exit-Codes von ~/.local/bin/flugmodus (siehe dort): 0 = geschaltet,
+    // 1 = Fehler, vom Skript schon gemeldet -- hier nur ins Log, sonst
+    // kaeme dieselbe Meldung doppelt. Alles andere heisst, das Skript kam
+    // gar nicht bis zu seiner Meldung (fehlt: 127, nicht ausfuehrbar: 126,
+    // abgeschossen), dann meldet das Widget.
+    Process {
+        id: schaltProc
+        command: ["sh", "-c", "exec \"$HOME/.local/bin/flugmodus\""]
+        stderr: StdioCollector {
+            id: schaltErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            // Erst im naechsten Durchlauf lesen: exited und streamFinished
+            // kommen in keiner festen Reihenfolge.
+            Qt.callLater(() => {
+                const fehler = schaltErr.text.trim()
+                if (exitCode === 0)
+                    return
+                root.protokoll("flugmodus: Exit " + exitCode + (fehler !== "" ? "\n" + fehler : " ohne stderr"))
+                if (exitCode !== 1) {
+                    const zeilen = fehler.split("\n")
+                    root.melden("Flugmodus nicht umgeschaltet",
+                        fehler !== "" ? zeilen[zeilen.length - 1].trim() : "Skript endete mit Code " + exitCode)
+                }
+            })
+        }
+    }
+
     // Steuerung und Test von aussen:
     //   dms ipc call flugmodus toggle   schaltet wie die Taste F8
     //   dms ipc call flugmodus status   "an" / "aus"
@@ -62,7 +110,7 @@ PluginComponent {
         target: "flugmodus"
 
         function toggle(): string {
-            Quickshell.execDetached(["sh", "-c", "exec \"$HOME/.local/bin/flugmodus\""])
+            root.umschalten()
             return "ok"
         }
 
@@ -76,8 +124,7 @@ PluginComponent {
         }
     }
 
-    pillClickAction: () => Quickshell.execDetached(
-        ["sh", "-c", "exec \"$HOME/.local/bin/flugmodus\""])
+    pillClickAction: () => root.umschalten()
 
     // Wie in DMSShell.qml: ein OSD pro Bildschirm ueber Variants. Ein einzelnes
     // DankOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist

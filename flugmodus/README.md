@@ -42,3 +42,16 @@ Geschaltet wird in `~/.local/bin/flugmodus` aus dem dotfiles-Repo
 (`localbin/flugmodus`). Fehlt das Skript, blockt der StartupCheck das Plugin
 mit einem Hinweis. Warum dort nmcli statt rfkill fuer WLAN benutzt wird,
 steht im Kopf des Skripts.
+
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (App „Flugmodus“, dringend — ohne
+Funk ist das Netz weg, und dringende Meldungen kommen auch bei „Nicht stoeren“
+durch). Die konkreten Fehler (nmcli, rfkill, unerwarteter Abbruch) meldet das
+Skript selbst und endet dann mit Exit 1; das Plugin meldet nur, wenn das
+Skript gar nicht bis dahin kam (fehlt, nicht ausfuehrbar, abgeschossen).
+
+```sh
+journalctl --user -u dms -g '\[flugmodus\]'   # Plugin
+journalctl -t flugmodus                        # Skript
+```
