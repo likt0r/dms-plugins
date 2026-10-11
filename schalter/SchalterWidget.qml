@@ -221,7 +221,7 @@ PluginComponent {
             root.vpnPopout(quelle)
             break
         case "diktat":
-            Quickshell.execDetached(["voxtype", "record", "toggle"])
+            root.diktatSchalten()
             break
         case "aufnahme":
             root.aufnahmeKlick()
@@ -230,6 +230,64 @@ PluginComponent {
             root.meldungenPopout(quelle)
             break
         }
+    }
+
+    // --- Fehler & Log ----------------------------------------------------------
+    // Fehler gehen als Desktop-Benachrichtigung raus (bleibt in der Historie,
+    // anders als ein Toast), die vollen Details ins Journal von dms.service:
+    // journalctl --user -u dms -g '\[schalter\]'
+    function protokoll(text) {
+        console.warn("[schalter] " + text)
+    }
+
+    // Kurzer Grund in die Benachrichtigung, Befehl/Exit/stderr vorher per
+    // protokoll(). app/icon: wer sich meldet (Diktat, Bildschirmaufnahme).
+    function melden(titel, text, dringlich, app, icon) {
+        const absender = app || "Umschalter"
+        root.protokoll(absender + ": " + titel + (text ? " – " + text : ""))
+        Quickshell.execDetached(["notify-send", "-a", absender, "-i", icon || "dialog-error",
+            "-u", dringlich === "critical" ? "critical" : "normal", titel, text || ""])
+    }
+
+    function letzteZeile(text) {
+        const zeilen = String(text || "").split("\n").map(z => z.trim()).filter(z => z !== "")
+        return zeilen.length ? zeilen[zeilen.length - 1] : ""
+    }
+
+    // Exit != 0 eines Helfers: alles ins Log, die letzte stderr-Zeile in die
+    // Benachrichtigung.
+    function befehlGescheitert(proc, exitCode, stderr, titel, app, icon) {
+        root.protokoll(proc.command.join(" ") + " -> Exit " + exitCode
+            + (stderr.trim() ? "\n" + stderr.trim() : ""))
+        const grund = root.letzteZeile(stderr)
+        root.melden(titel, grund || ("Exit " + exitCode), "normal", app, icon)
+    }
+
+    // --- Diktat schalten --------------------------------------------------------
+    // Ueber sh, damit ein fehlendes voxtype mit Exit 127 endet statt gar nicht
+    // zu starten (dann kaeme kein onExited). Laeuft der vorige Aufruf noch,
+    // faellt der Klick weg -- toggle kehrt sofort zurueck, das ist selten.
+    function diktatSchalten() {
+        if (diktatProc.running) {
+            root.protokoll("voxtype record toggle laeuft noch, Klick verworfen")
+            return
+        }
+        diktatProc.running = true
+    }
+
+    Process {
+        id: diktatProc
+        command: ["sh", "-c", "exec voxtype record toggle"]
+        stderr: StdioCollector {
+            id: diktatErr
+            waitForEnd: true
+        }
+        // Collector erst nach Qt.callLater lesen: dann ist er fertig.
+        onExited: (exitCode) => Qt.callLater(() => {
+            if (exitCode !== 0)
+                root.befehlGescheitert(diktatProc, exitCode, diktatErr.text,
+                    "Diktat ließ sich nicht schalten", "Diktat", "audio-input-microphone")
+        })
     }
 
     // --- Benachrichtigungen -----------------------------------------------------
@@ -265,9 +323,19 @@ PluginComponent {
 
     // --- Bildschirmaufnahme: Auswahl und Steuerung ----------------------------
 
+    // Start und Stop getrennt: start wartet ggf. auf slurp, stop bis zu 5 s
+    // auf den Recorder -- ein gemeinsamer Process verschluckte sonst den
+    // jeweils anderen. Der Recorder selbst laeuft abgekoppelt weiter, die
+    // Prozesse enden also gleich nach dem Start.
     function aufnahmeSkript(args) {
-        Quickshell.execDetached(["sh", "-c",
-            "exec \"$HOME/.local/bin/bildschirmaufnahme\" \"$@\"", "sh"].concat(args))
+        const proc = args[0] === "stop" ? aufnahmeStopProc : aufnahmeStartProc
+        if (proc.running) {
+            root.protokoll("bildschirmaufnahme " + args[0] + " laeuft noch, Aufruf verworfen")
+            return
+        }
+        proc.command = ["sh", "-c",
+            "exec \"$HOME/.local/bin/bildschirmaufnahme\" \"$@\"", "sh"].concat(args)
+        proc.running = true
     }
 
     function aufnahmeLesen(text) {
@@ -427,7 +495,9 @@ PluginComponent {
         // Rueckfall: vpnHub noch nicht geladen oder aelter als der Anker.
         // Dann oeffnet es sich an seinem eigenen Platz -- immer noch besser
         // als gar nichts.
-        Quickshell.execDetached(["dms", "ipc", "call", "vpnHub", "openPopout"])
+        root.protokoll("vpnHub-Anker fehlt, Rueckfall auf IPC openPopout")
+        if (!vpnIpc.running)
+            vpnIpc.running = true
     }
 
     // Rechtsklick fuehrt ins Control Center -- dort liegen die ausfuehrlichen
@@ -452,10 +522,67 @@ PluginComponent {
         id: aufnahmeAnlegen
         command: ["sh", "-c", "mkdir -p \"$1\" && { [ -e \"$2\" ] || : > \"$2\"; }",
                   "sh", root.aufnahmeOrdner, root.aufnahmePfad]
-        onExited: (code) => {
+        stderr: StdioCollector {
+            id: aufnahmeAnlegenErr
+            waitForEnd: true
+        }
+        // Scheitert das, fehlt nur die Laufzeit-Anzeige -- kein Grund fuer
+        // eine Benachrichtigung, aber fuers Log.
+        onExited: (code) => Qt.callLater(() => {
             if (code === 0)
                 aufnahmeDatei.reload()
+            else
+                root.protokoll("Zustandsdatei " + root.aufnahmePfad + " nicht anlegbar, Exit " + code
+                    + (aufnahmeAnlegenErr.text.trim() ? ": " + aufnahmeAnlegenErr.text.trim() : ""))
+        })
+    }
+
+    Process {
+        id: aufnahmeStartProc
+        stderr: StdioCollector {
+            id: aufnahmeStartErr
+            waitForEnd: true
         }
+        onExited: (exitCode) => Qt.callLater(() => {
+            if (exitCode !== 0)
+                root.befehlGescheitert(aufnahmeStartProc, exitCode, aufnahmeStartErr.text,
+                    "Aufnahme ließ sich nicht starten", "Bildschirmaufnahme", "media-record")
+        })
+    }
+
+    // "keine Aufnahme" beim stop ist harmlos (Klick auf ein Icon, dessen
+    // Aufnahme gerade von selbst endete) und wird nicht gemeldet.
+    Process {
+        id: aufnahmeStopProc
+        stderr: StdioCollector {
+            id: aufnahmeStopErr
+            waitForEnd: true
+        }
+        onExited: (exitCode) => Qt.callLater(() => {
+            if (exitCode !== 0 && aufnahmeStopErr.text.indexOf("keine Aufnahme") === -1)
+                root.befehlGescheitert(aufnahmeStopProc, exitCode, aufnahmeStopErr.text,
+                    "Aufnahme ließ sich nicht stoppen", "Bildschirmaufnahme", "media-record")
+        })
+    }
+
+    // Rueckfall-IPC zu vpnHub (vpnPopout); scheitert er, ist vpnHub nicht
+    // geladen -- das gehoert ins Log, eine Meldung braucht es dafuer nicht.
+    Process {
+        id: vpnIpc
+        command: ["dms", "ipc", "call", "vpnHub", "openPopout"]
+        stdout: StdioCollector {
+            id: vpnIpcOut
+            waitForEnd: true
+        }
+        stderr: StdioCollector {
+            id: vpnIpcErr
+            waitForEnd: true
+        }
+        onExited: (exitCode) => Qt.callLater(() => {
+            if (exitCode !== 0)
+                root.protokoll("dms ipc call vpnHub openPopout -> Exit " + exitCode + ": "
+                    + (vpnIpcErr.text.trim() || vpnIpcOut.text.trim()))
+        })
     }
 
     // Laufzeit im Bar-Icon; tickt nur waehrend einer Aufnahme.

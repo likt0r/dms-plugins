@@ -68,6 +68,20 @@ Den Zustand liest die Gruppe per `FileView` aus der Zustandsdatei des
 Skripts. Die muss beim Laden schon existieren, sonst meldet der Waechter
 nie etwas -- fehlt sie, legt das Plugin sie leer an und laedt neu.
 
+## Fehler & Log
+
+Scheitert `voxtype record toggle` oder `bildschirmaufnahme start|stop`
+(Exit != 0), kommt eine Desktop-Benachrichtigung (Absender "Diktat" bzw.
+"Bildschirmaufnahme") mit der letzten stderr-Zeile; sie bleibt im
+Benachrichtigungszentrum. "keine Aufnahme" beim Stoppen ist harmlos und wird
+nicht gemeldet. Befehl, Exit-Code und das ganze stderr stehen im Journal,
+ebenso stille Fehler wie eine nicht anlegbare Zustandsdatei oder ein
+gescheiterter IPC-Rueckfall zu vpnHub:
+
+```sh
+journalctl --user -u dms -g '\[schalter\]'
+```
+
 ## IPC
 
 ```
