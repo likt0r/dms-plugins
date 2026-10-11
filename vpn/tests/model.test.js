@@ -208,6 +208,7 @@ test("CLI errors are read from the output, not only the exit code", () => {
   assert.match(Model.cliError("Error: Authentication required.Please sign in with 'protonvpn signin' before connecting.", 2), /signin/)
   assert.equal(Model.cliError("Connected to CH#42 in Zurich. \nYour new IP address is 1.2.3.4.\n", 0), "")
   assert.match(Model.cliError("", 1), /Code 1/)
+  assert.equal(Model.cliError("Disconnected.\n", 1), "", "disconnect succeeds but exits 1 (CLI 1.0.5)")
 })
 
 test("the country tab filters by feature and searches names, codes and cities", () => {

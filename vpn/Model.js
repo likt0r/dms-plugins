@@ -239,6 +239,9 @@ function cliError(output, exitCode) {
     var line = lines[i].trim()
     if (line.indexOf("Error:") === 0) return line.substring(6).trim()
   }
+  // `disconnect` (CLI 1.0.5) trennt sauber, endet danach aber still mit
+  // Exit 1 -- auch ohne Kill Switch. Maßgeblich ist die Meldung.
+  if (/^Disconnected\.\s*$/m.test(text)) return ""
   if (exitCode !== undefined && exitCode !== 0) return "protonvpn beendete sich mit Code " + exitCode
   return ""
 }

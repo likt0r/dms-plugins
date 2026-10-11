@@ -188,7 +188,13 @@ dass mehrere Schirme gleichzeitig neu verbinden.
 
 **Kill Switch.** Schalter in den Einstellungen. Er liest und setzt die
 Einstellung der CLI (`protonvpn config list`, `protonvpn config set kill-switch
-off|standard`); „permanent“ gibt es nur in der App.
+off|standard`); „permanent“ gibt es nur in der App. Ändern lässt die CLI
+ihn nur bei getrennter Verbindung, solange Proton verbunden ist, ist der
+Schalter deshalb gesperrt.
+
+**CLI-Eigenheit.** `protonvpn disconnect` (CLI 1.0.5) trennt sauber, endet
+danach aber still mit Exit 1, mit und ohne Kill Switch. Steht „Disconnected.“
+in der Ausgabe, wertet das Widget das als Erfolg.
 
 **Standorte.** Die Proton-Bibliothek speichert die Serverliste unter
 `~/.cache/Proton/VPN/serverlist.json` (rund 20 MB, über 17 000 Server).

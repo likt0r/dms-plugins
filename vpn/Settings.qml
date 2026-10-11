@@ -66,6 +66,9 @@ PluginSettings {
     // Der Kill Switch ist eine Einstellung der Proton-CLI, nicht des Plugins:
     // gelesen mit `protonvpn config list`, geschrieben mit `config set`. Die
     // CLI kennt nur off und standard; "permanent" gibt es nur in der App.
+    // Ändern lässt die CLI ihn nur bei getrennter Verbindung (sonst Exit 2,
+    // "Disconnect before changing Kill Switch") -- der Schalter ist dann aus.
+    readonly property bool protonConnected: Model.protonActive(DMSNetworkService.vpnActive) !== null
     property string killSwitch: ""
     property string killSwitchError: ""
 
@@ -84,13 +87,17 @@ PluginSettings {
 
     Process {
         id: killSwitchWrite
+        stdout: StdioCollector {
+            id: killSwitchOut
+            waitForEnd: true
+        }
         stderr: StdioCollector {
             id: killSwitchErr
             waitForEnd: true
         }
         onExited: exitCode => {
             Qt.callLater(() => {
-                root.killSwitchError = exitCode === 0 ? "" : (killSwitchErr.text.trim() || "Code " + exitCode);
+                root.killSwitchError = Model.cliError(killSwitchOut.text + "\n" + killSwitchErr.text, exitCode);
                 killSwitchRead.running = true;
             });
         }
@@ -100,9 +107,11 @@ PluginSettings {
         width: parent.width
         visible: root.killSwitch !== ""
         text: "Kill Switch"
-        description: "Bricht der Tunnel ab, ist das ganze Netz gesperrt, bis Proton wieder verbunden ist oder du es ausschaltest. Aus: nach einem Abbruch ist nur DNS gesperrt (IPv6-Leckschutz), Verbindungen zu festen Adressen laufen ungeschützt weiter. Gilt ab der nächsten Verbindung."
+        description: root.protonConnected ? "Nur bei getrennter Proton-Verbindung änderbar – erst trennen."
+            : "Bricht der Tunnel ab, ist das ganze Netz gesperrt, bis Proton wieder verbunden ist oder du es ausschaltest. Aus: nach einem Abbruch ist nur DNS gesperrt (IPv6-Leckschutz), Verbindungen zu festen Adressen laufen ungeschützt weiter."
         checked: root.killSwitch === "standard"
-        enabled: !killSwitchWrite.running
+        enabled: !killSwitchWrite.running && !root.protonConnected
+        opacity: enabled ? 1 : 0.6
         onToggled: checked => {
             killSwitchWrite.command = ["protonvpn", "config", "set", "kill-switch", checked ? "standard" : "off"];
             killSwitchWrite.running = true;
