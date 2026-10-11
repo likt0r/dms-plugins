@@ -71,6 +71,25 @@ der Website ist zu beheben, ohne das Widget anzufassen. Der Helfer gibt
 **immer** genau ein JSON-Objekt aus und endet mit Status 0; Netzfehler liefern
 den Cache mit `stale: true`.
 
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (App „WartheMahl“), nicht als Toast
+— sie bleiben also im Benachrichtigungszentrum. Gemeldet wird:
+
+- wenn der Helfer gar nicht läuft (Exit ≠ 0: fehlender Interpreter,
+  abgeschossener Prozess) — auch bei schon geladener Karte, im Hintergrund
+  aber nur beim ersten Mal;
+- bei **manuellem** Neuladen (Rechtsklick, Knopf, `dms ipc call warthemahl
+  refresh`), wenn der Abruf scheitert oder nur der Cache-Stand (`OFFLINE`)
+  kam, mit dem Grund aus dem Helfer.
+
+Hintergrund-Abrufe ohne Netz zeigen den Grund nur im Popout. Alles — auch was
+nicht gemeldet wird, etwa ein nicht schreibbarer Cache — steht im Journal:
+
+```sh
+journalctl --user -u dms -g '\[warthemahl\]'
+```
+
 ## Tests
 
 ```bash

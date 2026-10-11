@@ -57,8 +57,11 @@ def write_cache(data):
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False)
         os.replace(tmp, path)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Not fatal -- the fresh menu still goes out on stdout -- but without a
+        # cache the next offline open shows nothing, so say why. The widget
+        # logs stderr from a successful run into the dms journal.
+        print("Cache nicht schreibbar (%s): %s" % (path, exc), file=sys.stderr)
 
 
 def strip_tags(fragment):

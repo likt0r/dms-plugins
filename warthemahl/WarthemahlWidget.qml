@@ -64,20 +64,45 @@ PluginComponent {
     visibilityCommand: "[ \"$(date +%u)\" -le 5 ] && [ \"$(date +%H)\" -lt 14 ]"
     visibilityInterval: 600
 
+    // force heisst immer "der Nutzer hat ausdruecklich nachgeladen"
+    // (Rechtsklick, Knopf, IPC refresh). Nur dann kommt ein Fehler als
+    // Benachrichtigung; Hintergrund-Abrufe zeigen ihn nur im Popout und im Log,
+    // sonst meldete jeder Timer-Tick ohne Netz dasselbe noch einmal.
     function refresh(force) {
         if (fetchProc.running) return
         root.now = new Date()
         root.loading = true
+        fetchProc.manual = force === true
         fetchProc.command = force
             ? [root.helperPath]
             : [root.helperPath, "--max-age", String(root.refreshIntervalSec)]
         fetchProc.running = true
     }
 
+    // false bei unlesbarem JSON; die alte Karte bleibt dann stehen.
     function applyPayload(text) {
         var parsed = Model.parsePayload(text)
-        if (!parsed) return
+        if (!parsed) return false
         root.menu = parsed
+        return true
+    }
+
+    // Nur ins Journal von dms.service: journalctl --user -u dms -g '\[warthemahl\]'
+    function protokoll(text) {
+        console.warn("[warthemahl] " + text)
+    }
+
+    // Volles Detail ins Log, der kurze Grund als Desktop-Benachrichtigung.
+    // Nicht transient, damit sie im Benachrichtigungszentrum bleibt.
+    function melden(titel, text, dringlich) {
+        root.protokoll(titel + ": " + text)
+        Quickshell.execDetached(["notify-send", "-a", "WartheMahl", "-i", "dialog-warning",
+            "-u", dringlich === true ? "critical" : "normal", titel, text])
+    }
+
+    function letzteZeile(text) {
+        var zeilen = String(text || "").trim().split("\n")
+        return zeilen[zeilen.length - 1].trim()
     }
 
     function failWith(message) {
@@ -130,18 +155,64 @@ PluginComponent {
 
     Process {
         id: fetchProc
+        property bool manual: false
+        // Merkt sich, dass der Helfer schon beim letzten Mal nicht lief: im
+        // Hintergrund wird nur der Wechsel "ging -> geht nicht" gemeldet,
+        // nicht jeder Timer-Tick.
+        property bool helperKaputt: false
         stdout: StdioCollector {
+            id: fetchOut
             waitForEnd: true
-            onStreamFinished: root.applyPayload(text)
         }
-        stderr: StdioCollector { waitForEnd: true }
+        stderr: StdioCollector {
+            id: fetchErr
+            waitForEnd: true
+        }
+        // Alles erst hier statt in onStreamFinished: exited und streamFinished
+        // kommen in keiner festen Reihenfolge, und die Auswertung braucht das
+        // geparste JSON. Qt.callLater wartet, bis beide Collector fertig sind
+        // (wie im vpn-Plugin).
         onExited: exitCode => {
-            root.loading = false
-            // Der Helfer meldet seine eigenen Probleme im JSON; ein Exit != 0
-            // heisst, er kam gar nicht so weit -- fehlender Interpreter,
-            // verlorenes Ausfuehrungsbit, abgeschossener Prozess.
-            if (exitCode !== 0) root.failWith("Speisekarten-Helfer fehlgeschlagen (Code " + exitCode + ")")
-            else if (!root.hasDays && root.menu.error === "") root.failWith("Keine Speisekarte empfangen")
+            Qt.callLater(() => {
+                root.loading = false
+                var manual = fetchProc.manual
+                var stderrText = fetchErr.text.trim()
+                // Der Helfer meldet seine eigenen Probleme im JSON; ein Exit != 0
+                // heisst, er kam gar nicht so weit -- fehlender Interpreter,
+                // verlorenes Ausfuehrungsbit, abgeschossener Prozess. Das ist
+                // nie normal und wird deshalb auch bei geladenem Plan gemeldet.
+                if (exitCode !== 0) {
+                    root.protokoll("Helfer " + root.helperPath + " endete mit Code " + exitCode
+                        + (stderrText !== "" ? ":\n" + stderrText : " ohne stderr"))
+                    if (manual || !fetchProc.helperKaputt)
+                        root.melden("WartheMahl: Speisekarte nicht geladen",
+                            stderrText !== "" ? root.letzteZeile(stderrText)
+                                              : "Speisekarten-Helfer fehlgeschlagen (Code " + exitCode + ")")
+                    fetchProc.helperKaputt = true
+                    root.failWith("Speisekarten-Helfer fehlgeschlagen (Code " + exitCode + ")")
+                    return
+                }
+                fetchProc.helperKaputt = false
+                // Exit 0 mit stderr: der Helfer hat etwas Nebensaechliches zu
+                // sagen (Cache nicht schreibbar) -- gehoert ins Log, nicht in
+                // eine Benachrichtigung.
+                if (stderrText !== "") root.protokoll("Helfer meldet: " + stderrText)
+                var gelesen = root.applyPayload(fetchOut.text)
+                if (!gelesen || (!root.hasDays && root.menu.error === "")) {
+                    root.protokoll(gelesen ? "Helfer lieferte weder Gerichte noch Fehler"
+                        : "Helfer lieferte kein lesbares JSON: " + fetchOut.text.trim().substring(0, 200))
+                    root.failWith("Keine Speisekarte empfangen")
+                    if (manual) root.melden("WartheMahl: Speisekarte nicht geladen", "Keine Speisekarte empfangen")
+                    return
+                }
+                if (root.menu.error !== "" || root.menu.stale) {
+                    var grund = root.menu.error !== "" ? root.menu.error : "Offline"
+                    var titel = root.hasDays ? "WartheMahl: Speisekarte nicht aktualisiert"
+                                             : "WartheMahl: Speisekarte nicht geladen"
+                    if (manual) root.melden(titel, grund + (root.hasDays ? " · zeige gespeicherten Stand" : ""))
+                    else root.protokoll("Hintergrund-Abruf: " + grund + (root.menu.stale ? " (Cache-Stand)" : ""))
+                }
+            })
         }
     }
 
