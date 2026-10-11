@@ -118,6 +118,10 @@ PluginComponent {
             return
         }
         if (!busy) return
+        // Das Ende des abgebrochenen Prozesses kommt danach noch als Exit
+        // ungleich 0 an. Ohne die Marke liefe es durch fail(): rotes Icon,
+        // ein lastError, nach dem niemand gefragt hat, und eine Meldung.
+        correctProc.cancelled = true
         correctProc.running = false
         apply("cancel")
     }
@@ -149,9 +153,41 @@ PluginComponent {
     }
 
     function fail(code, stderr) {
+        var message = Model.errorMessage(code, stderr)
         gLastExit.set(code)
-        gLastError.set(Model.errorMessage(code, stderr))
+        gLastError.set(message)
         apply("fail")
+        // Der rote Strich allein sagt nicht, was los ist, und die Karte macht
+        // niemand auf, um es nachzulesen.
+        melden("Korrektur fehlgeschlagen", message, false,
+            "Exit-Code " + code + "\nstderr: " + String(stderr || "").trim())
+    }
+
+    // ---------------------------------------------------------- Fehler & Log
+
+    // Fehler gehen als Desktop-Benachrichtigung raus statt als Toast: die
+    // bleibt im Benachrichtigungszentrum stehen. Das CLI meldet selbst nur
+    // Erfolge (und nur ohne --no-notify), Fehler meldet allein das Widget --
+    // so kommt keine doppelt, und das CLI bleibt auf der Konsole still.
+    // Ins Journal von dms.service geht jede Meldung mit allen Details:
+    //   journalctl --user -u dms -g '\[scribe\]'
+    function protokoll(text) {
+        console.warn("[scribe] " + text)
+    }
+
+    // detail nur fuers Log (Befehl, Exit-Code, stderr); die Benachrichtigung
+    // bekommt den kurzen Grund.
+    function melden(titel, text, dringlich, detail) {
+        protokoll(titel + ": " + text + (detail ? "\n" + detail : ""))
+        Quickshell.execDetached(["notify-send", "-a", "Scribe", "-i", "accessories-text-editor",
+            "-u", dringlich ? "critical" : "normal", titel, text])
+    }
+
+    // Fuer die kleinen Helfer-Prozesse (wl-copy, history clear, xdg-open):
+    // Grund ist die letzte stderr-Zeile, sonst der Exit-Code.
+    function befehlGescheitert(titel, argv, exitCode, stderr) {
+        melden(titel, Model.plainError(stderr) || "Exit-Code " + exitCode, false,
+            "Befehl: " + argv.join(" ") + "\nExit-Code: " + exitCode + "\nstderr: " + String(stderr || "").trim())
     }
 
     // Anders als "fail" kommt das im Leerlauf an -- beim Start oder wenn der
@@ -277,6 +313,7 @@ PluginComponent {
         if (busy) return
         if (profiles.length === 0) {
             pickerWanted = true
+            // Laeuft der Abruf schon, kommt das Grid mit seinem Ende.
             profilesProc.running = true
             return
         }
@@ -538,18 +575,35 @@ PluginComponent {
 
     Process {
         id: correctProc
+        property bool cancelled: false
         running: false
-        stdout: StdioCollector { waitForEnd: true }
-        stderr: StdioCollector { waitForEnd: true }
+        stdout: StdioCollector { id: correctOut; waitForEnd: true }
+        stderr: StdioCollector { id: correctErr; waitForEnd: true }
+        // Per Qt.callLater gelesen: exited kann vor dem Ende der Stroeme
+        // kommen, dann waeren die Collector noch leer.
         onExited: function(exitCode, exitStatus) {
-            if (exitCode === 0) {
-                var result = null
-                try { result = JSON.parse(stdout.text) } catch (e) { result = null }
-                root.succeed(result)
-            } else {
-                root.fail(exitCode, stderr.text)
-            }
-            historyFile.reload()
+            Qt.callLater(function() {
+                historyFile.reload()
+                if (correctProc.cancelled) {
+                    correctProc.cancelled = false
+                    root.protokoll("Korrektur abgebrochen (Exit-Code " + exitCode + ")")
+                    return
+                }
+                if (exitCode === 0 && exitStatus === 0) {
+                    var result = null
+                    try { result = JSON.parse(correctOut.text) } catch (e) { result = null }
+                    root.succeed(result)
+                    // Exit 0 mit stderr heisst: die Korrektur liegt in der
+                    // Zwischenablage, aber nebenher ging etwas schief (etwa
+                    // "could not write history").
+                    var warning = Model.plainError(correctErr.text)
+                    if (warning !== "")
+                        root.melden("Korrektur mit Warnung", warning, false,
+                            "stderr: " + correctErr.text.trim())
+                } else {
+                    root.fail(exitStatus === 0 ? exitCode : 128, correctErr.text)
+                }
+            })
         }
     }
 
@@ -558,34 +612,66 @@ PluginComponent {
         property string text: ""
         running: false
         command: ["wl-copy", "--", copyProc.text]
+        stderr: StdioCollector { id: copyErr; waitForEnd: true }
+        onExited: function(exitCode) {
+            if (exitCode === 0) return
+            // Den kopierten Text nicht ins Log: argv traegt hier die Korrektur.
+            Qt.callLater(function() {
+                root.befehlGescheitert("Kopieren fehlgeschlagen", ["wl-copy"], exitCode, copyErr.text)
+            })
+        }
     }
 
     Process {
         id: clearProc
         running: false
         command: [root.pluginDir + "/scribe", "history", "clear"]
-        onExited: historyFile.reload()
+        stderr: StdioCollector { id: clearErr; waitForEnd: true }
+        onExited: function(exitCode) {
+            historyFile.reload()
+            if (exitCode === 0) return
+            Qt.callLater(function() {
+                root.befehlGescheitert("History nicht geloescht", clearProc.command, exitCode, clearErr.text)
+            })
+        }
     }
 
     Process {
         id: profilesProc
         running: false
         command: [root.pluginDir + "/scribe", "profiles", "--json"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.adoptProfiles(text)
-        }
-        stderr: StdioCollector { waitForEnd: true }
+        stdout: StdioCollector { id: profilesOut; waitForEnd: true }
+        stderr: StdioCollector { id: profilesErr; waitForEnd: true }
         // Eine profiles.json, die das CLI abweist, liesse das Grid sonst leer
         // und sagte nichts dazu. Die Prompts sind das Produkt; sie nicht lesen
         // zu koennen ist das rote Icon wert.
+        // Ausgewertet erst nach dem Exit (per Qt.callLater, dann sind beide
+        // Stroeme zu Ende): adoptProfiles muss wissen, ob der Abruf
+        // gescheitert ist, sonst meldete ein leeres stdout "keine Prompts"
+        // obendrauf.
         onExited: function(exitCode) {
-            if (exitCode === 0) {
-                root.recovered()
-                return
-            }
-            root.pickerWanted = false
-            root.misconfigured(exitCode, Model.plainError(stderr.text))
+            Qt.callLater(function() {
+                if (exitCode === 0) {
+                    root.recovered()
+                    root.adoptProfiles(profilesOut.text)
+                    return
+                }
+                var wanted = root.pickerWanted
+                root.pickerWanted = false
+                root.adoptProfiles(profilesOut.text)
+                // Jede Bar-Instanz liest die Prompts selbst; gemeldet wird
+                // nur der Wechsel auf "kaputt" (die Marke ist global) oder
+                // wenn gerade jemand das Grid sehen wollte.
+                var fresh = !gConfigFailed.value
+                var message = Model.plainError(profilesErr.text)
+                root.misconfigured(exitCode, message)
+                if (fresh || wanted)
+                    root.melden("Prompts nicht lesbar", message || "Exit-Code " + exitCode, false,
+                        "Befehl: " + profilesProc.command.join(" ") + "\nExit-Code: " + exitCode
+                        + "\nstderr: " + profilesErr.text.trim())
+                else
+                    root.protokoll("profiles --json: Exit-Code " + exitCode + ", " + profilesErr.text.trim())
+            })
         }
     }
 
@@ -595,10 +681,12 @@ PluginComponent {
         profiles = Model.normalizeProfiles(parsed)
         if (pickerIndex >= profiles.length) pickerIndex = Math.max(0, profiles.length - 1)
         syncDraft()
-        if (pickerWanted && profiles.length > 0) {
-            pickerWanted = false
-            openPicker()
-        }
+        if (!pickerWanted) return
+        pickerWanted = false
+        if (profiles.length > 0) openPicker()
+        // Sonst blieb der Tastendruck ohne jede Antwort.
+        else melden("Keine Prompts", "profiles.json enthaelt keinen Prompt.", false,
+            "Ausgabe von profiles --json: " + String(payload).trim().slice(0, 500))
     }
 
     // Speichern laeuft durchs CLI statt die Datei hier zu schreiben:
@@ -617,12 +705,18 @@ PluginComponent {
         stdout: StdioCollector { waitForEnd: true }
         stderr: StdioCollector { waitForEnd: true }
         onExited: function(exitCode) {
-            if (exitCode === 0) {
-                root.promptsError = ""
-                root.adoptProfiles(stdout.text)
-            } else {
-                root.promptsError = Model.errorMessage(exitCode, stderr.text)
-            }
+            Qt.callLater(function() {
+                if (exitCode === 0) {
+                    root.promptsError = ""
+                    root.adoptProfiles(saveProc.stdout.text)
+                } else {
+                    // Der Fehler steht im Editor, wo der Nutzer gerade
+                    // hinschaut; keine Benachrichtigung, nur das volle stderr
+                    // ins Log.
+                    root.promptsError = Model.errorMessage(exitCode, saveProc.stderr.text)
+                    root.protokoll("profiles save: Exit-Code " + exitCode + ", " + saveProc.stderr.text.trim())
+                }
+            })
         }
     }
 
@@ -647,6 +741,14 @@ PluginComponent {
                 catch (e) { root.backendNames = [] }
             }
         }
+        // Nur ins Log: die leere Backend-Liste sieht man in den Einstellungen.
+        stderr: StdioCollector { id: backendsErr; waitForEnd: true }
+        onExited: function(exitCode) {
+            if (exitCode === 0) return
+            Qt.callLater(function() {
+                root.protokoll("backends --json: Exit-Code " + exitCode + ", " + backendsErr.text.trim())
+            })
+        }
     }
 
     Process {
@@ -663,6 +765,13 @@ PluginComponent {
         id: editProc
         running: false
         command: ["xdg-open", root.configDir + "/profiles.json"]
+        stderr: StdioCollector { id: editErr; waitForEnd: true }
+        onExited: function(exitCode) {
+            if (exitCode === 0) return
+            Qt.callLater(function() {
+                root.befehlGescheitert("profiles.json nicht geoeffnet", editProc.command, exitCode, editErr.text)
+            })
+        }
     }
 
     // Der Keybind, der den Picker oeffnet, angezeigt im Overlay. niri gibt die

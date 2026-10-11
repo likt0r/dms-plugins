@@ -79,6 +79,24 @@ dms ipc call scribe status           # idle|working|done|error
 dms ipc call scribe lastError        # warum der letzte Lauf scheiterte
 ```
 
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (Absender „Scribe“) und bleiben im
+Benachrichtigungszentrum: gescheiterte Korrektur, nicht lesbare Prompts,
+Kopieren/History löschen/`profiles.json` öffnen, und eine Korrektur, die
+klappte, aber eine Warnung auf stderr hatte (etwa „could not write history“).
+Ein Abbruch per Rechtsklick oder `cancel` ist kein Fehler und bleibt still.
+Fehler beim Speichern eines Prompts stehen weiter im Editor, der rote Strich
+und `lastError` bleiben wie gehabt.
+
+Das CLI selbst meldet nur Erfolge (ohne `--no-notify`); Fehler meldet allein
+das Widget, damit nichts doppelt kommt. Jede Meldung steht mit Befehl,
+Exit-Code und vollem stderr im Journal:
+
+```bash
+journalctl --user -u dms -g '\[scribe\]'
+```
+
 ## Dateien
 
 ```
