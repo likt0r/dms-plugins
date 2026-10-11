@@ -674,6 +674,11 @@ PluginComponent {
                 id: rowLoader
                 required property var modelData
                 width: ListView.view.width
+                // Hoehe ausdruecklich aus dem Inhalt: ein aufklappender Task
+                // waechst, und ohne diese Bindung bliebe der Loader bei der
+                // Hoehe beim Laden -- die Notiz laege dann ueber der naechsten
+                // Zeile.
+                height: item ? item.implicitHeight : 0
                 sourceComponent: modelData.kind === "task" ? taskRow
                     : modelData.kind === "header" ? headerRow : doneHeaderRow
                 onLoaded: item.row = rowLoader.modelData
@@ -705,7 +710,7 @@ PluginComponent {
 
     component HeaderRow: Item {
         property var row: ({})
-        height: 30
+        implicitHeight: 30
 
         Rectangle {
             id: dot
@@ -739,32 +744,42 @@ PluginComponent {
 
     // Marker fuer Projekt-Notizen. Lesen kann das Plugin sie nicht (die API
     // liefert nur noteIds), darum holt ein Klick SP nach vorn.
-    component ProjectNotesMarker: Row {
+    component ProjectNotesMarker: Item {
         id: marker
         property int count: 0
         visible: count > 0
-        spacing: 2
+        implicitWidth: markerRow.implicitWidth
+        implicitHeight: markerRow.implicitHeight
 
-        DankIcon {
-            anchors.verticalCenter: parent.verticalCenter
-            name: "sticky_note_2"
-            size: 14
-            color: Theme.primary
-        }
+        // Die MouseArea liegt neben der Row, nicht in ihr: als Kind der Row
+        // zaehlte ihre Breite (marker.width + 8) in die Breite der Row, die
+        // wieder die MouseArea verbreiterte -- eine Polish-Schleife, die Qt
+        // abbricht, und danach legte sich im ganzen Panel kein Positionierer
+        // mehr aus (Kopf, Chips, Eingabefeld fehlten, Notizen klappten nicht
+        // auf).
+        Row {
+            id: markerRow
+            spacing: 2
 
-        StyledText {
-            anchors.verticalCenter: parent.verticalCenter
-            visible: marker.count > 1
-            text: String(marker.count)
-            color: Theme.primary
-            font.pixelSize: Theme.fontSizeSmall
+            DankIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: "sticky_note_2"
+                size: 14
+                color: Theme.primary
+            }
+
+            StyledText {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: marker.count > 1
+                text: String(marker.count)
+                color: Theme.primary
+                font.pixelSize: Theme.fontSizeSmall
+            }
         }
 
         MouseArea {
-            width: marker.width + 8
-            height: marker.height + 8
-            x: -4
-            y: -4
+            anchors.fill: parent
+            anchors.margins: -4
             cursorShape: Qt.PointingHandCursor
             onClicked: root.launchApp()
         }
@@ -772,7 +787,7 @@ PluginComponent {
 
     component DoneHeaderRow: Item {
         property var row: ({})
-        height: 30
+        implicitHeight: 30
 
         MouseArea {
             anchors.fill: parent
@@ -807,7 +822,7 @@ PluginComponent {
         readonly property bool showActions: hover.containsMouse || armed || row.isCurrent === true
         readonly property bool open: root.openId !== "" && root.openId === row.id
         readonly property bool hasNotes: String(row.notes || "").trim() !== ""
-        height: 36 + (open ? notesBox.height + Theme.spacingXS : 0)
+        implicitHeight: 36 + (open ? notesBox.height + Theme.spacingXS : 0)
 
         // Kopfzeile des Tasks; darunter klappen die Notizen auf.
         Item {
@@ -824,11 +839,17 @@ PluginComponent {
                     : hover.containsMouse ? Theme.surfaceHover : "transparent"
             }
 
+            // Die ganze Zeile: Klick klappt den Task auf (Notizen), Doppelklick
+            // benennt um -- der Doppelklick klappt dabei auch auf, das stoert
+            // nicht. Checkbox und Knoepfe liegen darueber und fangen ihre
+            // Klicks selbst; abgehakt wird nur ueber die Checkbox.
             MouseArea {
                 id: hover
                 anchors.fill: parent
                 hoverEnabled: true
-                acceptedButtons: Qt.NoButton
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.toggleOpen(taskItem.row.id)
+                onDoubleClicked: root.editingId = taskItem.row.id
             }
 
             DankIcon {
@@ -865,15 +886,6 @@ PluginComponent {
                 color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.surfaceText
                 font.strikeout: taskItem.row.isDone === true
 
-                // Klick klappt den Task auf (Notizen), Doppelklick benennt um
-                // -- der Doppelklick klappt dabei auch auf, das stoert nicht.
-                // Abgehakt wird nur ueber die Checkbox.
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.toggleOpen(taskItem.row.id)
-                    onDoubleClicked: root.editingId = taskItem.row.id
-                }
             }
 
             // Marker: der Task hat Notizen. Immer sichtbar, aufgeklappt gefuellt.
@@ -887,13 +899,6 @@ PluginComponent {
                 filled: taskItem.open
                 size: 16
                 color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.primary
-
-                MouseArea {
-                    anchors.fill: parent
-                    anchors.margins: -4
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.toggleOpen(taskItem.row.id)
-                }
             }
 
             DankTextField {
