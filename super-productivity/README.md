@@ -4,12 +4,15 @@ Todos in der DankMaterialShell-Bar, mit [Super Productivity](https://super-produ
 als Backend. Die Pille zeigt, wie viel heute ansteht. Ein Klick oder Super+M
 klappt von der Bildschirmkante ein Panel herein, wie das Notepad von DMS. Dort
 legt man Tasks an, hakt sie ab und schreibt Notizen dazu. Geht ein Popout auf
-(Kontrollzentrum, WLAN, VPN …), liegt es über dem Panel, und das Panel bleibt
-offen.
+(Kontrollzentrum, WLAN, VPN …), verschwindet das Panel, solange das Popout
+offen ist, und kommt danach wieder.
 
 Dafür meldet sich das Panel nicht beim `PopoutManager` von DMS an, und es liegt
 fest auf dem Layer `Top`. Im Frame-Modus würde `DankSlideout` sonst auf
-`Overlay` gehen, also über die Popouts.
+`Overlay` gehen, also über die Popouts. Ausgeblendet wird es, weil DMS im
+Frame-Modus den Hintergrund eines Popouts in das Rahmen-Fenster malt, das unter
+dem Panel liegt. Nur die Kacheln des Popouts lägen darüber, und die Schrift des
+Panels schiene dazwischen durch.
 
 Die Daten bleiben in Super Productivity. Das Plugin spricht nur mit dessen
 **lokaler REST-API** und speichert selbst nichts. Den Sync (bei mir per

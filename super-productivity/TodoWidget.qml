@@ -14,8 +14,8 @@ import "Model.js" as Model
 // Notizen versehen und die Zeiterfassung gestartet.
 //
 // Das Panel ist bewusst kein Popout: es meldet sich nicht beim PopoutManager
-// an. Popouts (Kontrollzentrum, WLAN ...) gehen deshalb darueber auf und
-// lassen es offen, statt es zu schliessen -- wie beim Notepad.
+// an. Popouts (Kontrollzentrum, WLAN ...) schliessen es deshalb nicht; es
+// blendet sich nur aus, solange eines auf seinem Schirm offen ist.
 //
 // Die Daten gehoeren Super Productivity: das Plugin spricht nur mit dessen
 // lokaler REST-API (127.0.0.1:3876) ueber bin/sp-api und haelt nichts
@@ -323,6 +323,30 @@ PluginComponent {
         Qt.callLater(() => slideout.show())
     }
 
+    // Offenes Popout auf dem Schirm des Panels (siehe visible am Slideout).
+    // popoutChanged kommt nicht bei jedem Schliessen, daher zusaetzlich der
+    // Timer, solange das Panel offen ist.
+    property bool popoutOnScreen: false
+
+    function updatePopoutOnScreen() {
+        var name = root.slideScreen ? root.slideScreen.name : ""
+        var popout = name ? PopoutManager.currentPopoutsByScreen[name] : null
+        root.popoutOnScreen = !!popout && PopoutManager._isPopoutPresented(popout)
+    }
+
+    Connections {
+        target: PopoutManager
+        function onPopoutOpening() { Qt.callLater(root.updatePopoutOnScreen) }
+        function onPopoutChanged() { root.updatePopoutOnScreen() }
+    }
+
+    Timer {
+        interval: 150
+        repeat: true
+        running: slideout.mappedVisible
+        onTriggered: root.updatePopoutOnScreen()
+    }
+
     // --------------------------------------------------------------- Zeitgeber
 
     Timer {
@@ -442,6 +466,12 @@ PluginComponent {
         // Popouts gehen ueber dem Panel auf. Auf demselben Layer liegt, was
         // zuletzt gezeigt wurde, oben -- also das danach geoeffnete Popout.
         WlrLayershell.layer: WlrLayershell.Top
+        // Im Frame-Modus zeichnet DMS den Hintergrund eines Popouts in das
+        // Rahmen-Fenster, das unter dem Panel liegt; nur die Inhalte liegen
+        // darueber. Die Schrift des Panels schiene so zwischen den Kacheln
+        // des Popouts durch. Solange auf diesem Schirm ein Popout offen ist,
+        // wird das Panel deshalb ausgeblendet und danach wieder gezeigt.
+        visible: slideout.mappedVisible && !root.popoutOnScreen
         content: Component {
             TodoPanel {}
         }
