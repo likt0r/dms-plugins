@@ -32,6 +32,11 @@ Item {
     property bool verbunden: false
     property int _fehler: 0
 
+    // Jeder Fehlstart, mit Exit-Code und stderr der Bridge. endgueltig ist
+    // der dritte in Folge, nach dem nicht mehr neu gestartet wird -- das
+    // Widget meldet dann und loggt sonst nur.
+    signal gescheitert(string detail, bool endgueltig)
+
     // Absichtlich ein nacktes JS-Objekt: In-place-Mutation loest kein
     // propertyChanged aus, 100 Frames/s kosten damit nichts.
     property var _akku: ({ max: 0, stimme: false, frames: 0 })
@@ -85,12 +90,36 @@ Item {
             }
         }
 
-        onExited: {
+        stderr: StdioCollector { id: fehlerText }
+
+        // Fehlt das Binary, kommt von Quickshell kein exited, nur running
+        // faellt ohne vorheriges started zurueck. Neu starten hilft dann
+        // nicht, also gleich als endgueltig werten.
+        property bool gestartet: false
+        onStarted: proc.gestartet = true
+        onRunningChanged: {
+            if (proc.running) {
+                proc.gestartet = false
+                return
+            }
+            if (proc.gestartet || !root.sollLaufen)
+                return
+            root.gescheitert("Programm nicht gefunden: " + root.binary, true)
+            root.fehlt = true
+        }
+
+        onExited: (exitCode, exitStatus) => {
             root.verbunden = false
             if (!root.sollLaufen)
                 return
             root._fehler++
-            if (root._fehler >= 3) {
+            const endgueltig = root._fehler >= 3
+            // stderr erst per Qt.callLater lesen, dann ist der Strom zu Ende.
+            Qt.callLater(() => root.gescheitert("Exit-Code " + exitCode
+                + (exitStatus !== 0 ? " (abgestuerzt)" : "")
+                + ", Versuch " + root._fehler
+                + (fehlerText.text.trim() ? "\n" + fehlerText.text.trim() : ""), endgueltig))
+            if (endgueltig) {
                 root.fehlt = true
                 return
             }

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Common
+import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
@@ -130,12 +131,120 @@ PluginComponent {
     visibilityCommand: "systemctl --user --quiet is-active voxtype.service"
     visibilityInterval: 10
 
-    pillClickAction: () => {
-        Quickshell.execDetached(["voxtype", "record", "toggle"])
-    }
+    pillClickAction: () => root.umschalten()
     // Konfiguration im schwebenden Terminal (Fensterregel in niri/config.kdl).
     pillRightClickAction: () => {
-        Quickshell.execDetached(["alacritty", "--class", "voxtype-configure", "-e", "voxtype", "configure"])
+        konfigurieren.starten()
+    }
+
+    // ---- Fehler & Log ------------------------------------------------------
+    // Fehler gehen als Desktop-Benachrichtigung raus statt als Toast: die
+    // bleibt im Benachrichtigungszentrum stehen. Ins Log (Journal von
+    // dms.service) kommt jede Meldung mit allen Details, auch die, die
+    // nicht als Benachrichtigung rausgeht:
+    //   journalctl --user -u dms -g '\[voxtype\]'
+    function protokoll(text) {
+        console.warn("[voxtype] " + text)
+    }
+
+    // detail ist optional und nur fuers Log (Befehl, Exit-Code, stderr) --
+    // die Benachrichtigung bekommt nur den kurzen Grund.
+    function melden(titel, text, dringlich, detail) {
+        root.protokoll(titel + ": " + text + (detail ? "\n" + detail : ""))
+        Quickshell.execDetached(["notify-send", "-a", "Diktat", "-i", "audio-input-microphone",
+            "-u", dringlich ? "critical" : "normal", titel, text])
+    }
+
+    // Fuer Hintergrundfehler: die Bar steht auf jedem Bildschirm, jede
+    // Instanz hat ihren eigenen Statusstrom und merkt denselben Absturz.
+    // Die Marke liegt deshalb in den globalVars, die alle Instanzen teilen;
+    // innerhalb von 30 s geht dieselbe Meldung nur einmal raus.
+    function meldenEinmal(schluessel, titel, text, dringlich, detail) {
+        const jetzt = Date.now()
+        const zuletzt = PluginService.getGlobalVar("voxtype", "gemeldet:" + schluessel, 0)
+        if (jetzt - zuletzt < 30000) {
+            root.protokoll(titel + ": " + text + " (von anderer Instanz schon gemeldet)")
+            return
+        }
+        PluginService.setGlobalVar("voxtype", "gemeldet:" + schluessel, jetzt)
+        root.melden(titel, text, dringlich, detail)
+    }
+
+    // voxtype faerbt seine Fehlermeldungen mit ANSI-Codes ein; in der
+    // Benachrichtigung waeren das Steuerzeichen.
+    function letzteZeile(text) {
+        const zeilen = String(text || "").replace(/\x1b\[[0-9;]*m/g, "").split("\n")
+            .map(z => z.trim()).filter(z => z !== "")
+        return zeilen.length ? zeilen[zeilen.length - 1] : ""
+    }
+
+    function befehlGescheitert(titel, befehl, exitCode, fehlerText) {
+        const grund = exitCode < 0
+            ? "Programm nicht gefunden: " + befehl[0]
+            : (root.letzteZeile(fehlerText) || "Exit-Code " + exitCode)
+        root.melden(titel, grund, false,
+            "Befehl: " + befehl.join(" ") + "\nExit-Code: " + exitCode + "\nstderr: " + fehlerText)
+    }
+
+    function umschalten() {
+        umschaltProc.starten()
+    }
+
+    // Ein Kommando, dessen Scheitern zaehlt. Statt Quickshell.execDetached,
+    // das Exit-Code und stderr verwirft -- ein Klick bei gestopptem Daemon
+    // blieb so ohne jede Rueckmeldung.
+    // Startet das Programm gar nicht (Binary fehlt), meldet Quickshell kein
+    // exited, nur running wird wieder false, ohne dass started kam. Das
+    // wird als Exit-Code -1 gemeldet.
+    component Befehl: Process {
+        id: befehl
+
+        property bool _gestartet: false
+        signal gescheitert(int exitCode, string fehlerText)
+
+        // Laeuft der Befehl noch, zaehlt ein zweiter Klick nicht: ein
+        // laufender Process laesst sich nicht ein zweites Mal starten.
+        function starten() {
+            if (befehl.running)
+                return
+            befehl._gestartet = false
+            befehl.running = true
+        }
+
+        stderr: StdioCollector { id: befehlFehler }
+        onStarted: befehl._gestartet = true
+        onRunningChanged: {
+            if (!befehl.running && !befehl._gestartet)
+                befehl.gescheitert(-1, "")
+        }
+        // Erst per Qt.callLater lesen: exited kann vor dem Ende des
+        // stderr-Stroms kommen, dann waere der Collector noch leer.
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode === 0 && exitStatus === 0)
+                return
+            Qt.callLater(() => befehl.gescheitert(exitStatus === 0 ? exitCode : 128, befehlFehler.text))
+        }
+    }
+
+    Befehl {
+        id: umschaltProc
+        command: ["voxtype", "record", "toggle"]
+        onGescheitert: (exitCode, fehlerText) =>
+            root.befehlGescheitert("Aufnahme umschalten fehlgeschlagen", umschaltProc.command, exitCode, fehlerText)
+    }
+
+    // Als Process statt execDetached haengt das Terminal an der Shell: ein
+    // `dms restart` schliesst es mit. Dafuer kommt ein fehlendes alacritty
+    // oder ein abstuerzendes `voxtype configure` jetzt als Meldung an.
+    Befehl {
+        id: konfigurieren
+        // Das Terminal per `setsid -f` abkoppeln: sonst liefe der Process, bis
+        // es zu ist, und ein zweiter Rechtsklick ginge ins Leere. Was fehlt,
+        // meldet die Pruefung vorher mit Exit 127.
+        command: ["sh", "-c", "for p in alacritty voxtype; do command -v \"$p\" >/dev/null || { echo \"$p nicht gefunden\" >&2; exit 127; }; done; "
+            + "exec setsid -f alacritty --class voxtype-configure -e voxtype configure"]
+        onGescheitert: (exitCode, fehlerText) =>
+            root.befehlGescheitert("Diktat-Einstellungen nicht geoeffnet", konfigurieren.command, exitCode, fehlerText)
     }
 
     // ---- Pegelquelle und Takte ---------------------------------------------
@@ -143,7 +252,24 @@ PluginComponent {
     VoxtypePegel {
         id: pegelquelle
         aktiv: root.phaseAufnahme && !root.testModus
+
+        // Jeder Fehlstart kommt ins Log; gemeldet wird nur einmal, bis die
+        // Bridge wieder einmal verbunden war -- sonst kaeme bei fehlendem
+        // Paket bei jedem Diktat dieselbe Benachrichtigung.
+        onGescheitert: (detail, endgueltig) => {
+            root.protokoll("voxtype-audio-bridge: " + detail)
+            if (!endgueltig || root.pegelGemeldet)
+                return
+            root.pegelGemeldet = true
+            root.meldenEinmal("pegel", "Diktat ohne Pegelanzeige",
+                "voxtype-audio-bridge startet nicht (" + (root.letzteZeile(detail) || "unbekannter Grund") + ")", false)
+        }
+        onVerbundenChanged: {
+            if (pegelquelle.verbunden)
+                root.pegelGemeldet = false
+        }
     }
+    property bool pegelGemeldet: false
 
     // Holt alle 100 ms den groessten Pegel seit dem letzten Mal. Eine
     // Zuweisung alle 100 ms statt 100 pro Sekunde -- siehe VoxtypePegel.qml.
@@ -202,7 +328,7 @@ PluginComponent {
         target: "voxtype"
 
         function toggle(): string {
-            Quickshell.execDetached(["voxtype", "record", "toggle"])
+            root.umschalten()
             return "ok"
         }
 
@@ -228,6 +354,23 @@ PluginComponent {
         }
     }
 
+    // Ob der Daemon zuletzt lief. Gemeldet wird nur der Wechsel von "lief"
+    // auf "weg" -- nicht jeder Neuverbindungsversuch alle 5 s, und auch
+    // nicht, wenn er schon beim Shell-Start nicht lief.
+    property bool daemonLief: false
+
+    onDictStateChanged: {
+        if (root.dictState !== "stopped") {
+            if (!root.daemonLief) {
+                root.daemonLief = true
+                dienstStatus.pruefen(true)
+            }
+        } else if (root.daemonLief) {
+            root.daemonLief = false
+            dienstPruefung.restart()
+        }
+    }
+
     Process {
         id: statusProcess
         command: ["voxtype", "status", "--follow", "--extended", "--format", "json"]
@@ -246,15 +389,84 @@ PluginComponent {
                         return
                     root.dictState = klasse
                     root.statusTooltip = String(j.tooltip || "")
-                } catch (e) {}
+                } catch (e) {
+                    root.protokoll("voxtype status: Zeile ist kein JSON: " + data)
+                }
             }
         }
+        stderr: StdioCollector { id: statusFehler }
         // Daemon weg -> Strom endet. Zustand zuruecksetzen und spaeter neu
-        // verbinden (der Daemon kommt per systemd meist wieder).
-        onExited: {
+        // verbinden (der Daemon kommt per systemd meist wieder). Ins Log
+        // geht jedes Ende, auch jeder gescheiterte Neuversuch.
+        onExited: (exitCode, exitStatus) => {
+            Qt.callLater(() => root.protokoll("voxtype status beendet, Exit-Code " + exitCode
+                + (exitStatus !== 0 ? " (abgestuerzt)" : "")
+                + (statusFehler.text.trim() ? ", stderr: " + statusFehler.text.trim() : "")))
             root.dictState = "stopped"
             restartTimer.start()
         }
+    }
+
+    // Ein bewusstes `systemctl --user stop voxtype` ist kein Fehler. Was
+    // systemd festhaelt, unterscheidet beides:
+    //   - Result: "success" bei sauberem Stopp, sonst exit-code, signal,
+    //     core-dump ... -- aber nur bis zum naechsten Start. Mit
+    //     Restart=on-failure steht der Dienst nach 100 ms wieder und Result
+    //     ist wieder "success".
+    //   - NRestarts zaehlt genau diese automatischen Neustarts. Der Stand
+    //     wird festgehalten, sobald der Daemon laeuft (Basis), und beim Ende
+    //     verglichen.
+    // Die Pause vor der Pruefung gibt systemd Zeit, das nachzutragen -- der
+    // Statusstrom merkt das Ende mitunter schneller.
+    property int bekannteNeustarts: -1
+
+    Timer {
+        id: dienstPruefung
+        interval: 1000
+        onTriggered: dienstStatus.pruefen(false)
+    }
+
+    Process {
+        id: dienstStatus
+        property bool basis: false
+        command: ["systemctl", "--user", "show", "-p", "ActiveState", "-p", "Result", "-p", "NRestarts", "voxtype.service"]
+        stdout: StdioCollector { id: dienstAusgabe }
+
+        function pruefen(nurBasis) {
+            // Laeuft noch die vorige Abfrage, kurz spaeter noch einmal.
+            if (dienstStatus.running) {
+                if (!nurBasis)
+                    dienstPruefung.restart()
+                return
+            }
+            dienstStatus.basis = nurBasis
+            dienstStatus.running = true
+        }
+
+        onExited: Qt.callLater(() => {
+            const werte = {}
+            for (const zeile of dienstAusgabe.text.split("\n")) {
+                const i = zeile.indexOf("=")
+                if (i > 0)
+                    werte[zeile.slice(0, i)] = zeile.slice(i + 1).trim()
+            }
+            const neustarts = parseInt(werte.NRestarts, 10)
+            const vorher = root.bekannteNeustarts
+            root.bekannteNeustarts = isNaN(neustarts) ? -1 : neustarts
+            if (dienstStatus.basis)
+                return
+            const result = werte.Result || "unbekannt"
+            const neuGestartet = vorher >= 0 && neustarts > vorher
+            if (result === "success" && werte.ActiveState !== "failed" && !neuGestartet) {
+                root.protokoll("voxtype.service beendet (sauber, " + (werte.ActiveState || "?") + ")")
+                return
+            }
+            root.meldenEinmal("dienst", "Diktat-Dienst abgestuerzt",
+                neuGestartet && result === "success"
+                    ? "voxtype.service ist abgestuerzt und wurde neu gestartet"
+                    : "voxtype.service ist unerwartet beendet (" + result + ")", false,
+                "systemctl show: " + dienstAusgabe.text.trim().replace(/\n/g, ", "))
+        })
     }
 
     Timer {

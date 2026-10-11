@@ -22,6 +22,27 @@ Das Bar-Icon bleibt daneben bestehen und pulsiert waehrend der Aufnahme.
 | `dms ipc call voxtype status` | `<echte Phase>/<angezeigte Phase>` |
 | `dms ipc call voxtype osd recording\|transcribing\|aus` | OSD mit Demo-Daten, ohne Mikrofon |
 
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (Absender „Diktat“) und bleiben im
+Benachrichtigungszentrum:
+
+- Klick, `dms ipc call voxtype toggle` oder Rechtsklick (`voxtype configure`)
+  scheitern -- mit der letzten stderr-Zeile als Grund, etwa „daemon not
+  running“,
+- `voxtype.service` stirbt unerwartet: einmal beim Wechsel, nicht bei jedem
+  Neuverbindungsversuch. Ein bewusstes `systemctl --user stop` bleibt still
+  (unterschieden ueber `Result` und `NRestarts` von systemd),
+- `voxtype-audio-bridge` startet nicht: einmal, bis sie wieder verbunden war.
+
+Bei mehreren Bildschirmen geht jede Hintergrundmeldung nur einmal raus. Ins
+Journal kommt jedes Ereignis mit Befehl, Exit-Code und stderr, auch die nicht
+gemeldeten:
+
+```
+journalctl --user -u dms -g '\[voxtype\]'
+```
+
 ## Das Bar-Icon steht auf "aus" -- das Plugin trotzdem nicht
 
 Seit es die Umschalter-Gruppe (`schalter/`) gibt, zeigt die den Diktat-Zustand
