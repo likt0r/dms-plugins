@@ -1,33 +1,53 @@
 #!/bin/sh
 # Proton-Verbindung nach einem unerwarteten Abbruch wiederherstellen.
 #
-#   proton-recover [protonvpn-connect-Argumente …]
+#   proton-recover [protonvpn-connect-Argumente …]   neu verbinden
+#   proton-recover --release                          Sperre bewusst aufheben
+#   proton-recover --check                            Exit 0, wenn Sperre steht
 #
-# Warum es das braucht: `protonvpn connect` schaltet bei abgeschaltetem Kill
-# Switch einen IPv6-Leckschutz ein -- die NM-Verbindung "pvpn-killswitch-ipv6"
-# mit DNS ::1 und dns-priority -1400. Die negative Priorität macht sie zum
-# einzigen DNS-Weg, solange tun0 fehlt. Abgebaut wird sie nur vom Proton-
-# Prozess, der das Trennen mitbekommt (proton/vpn/connection/states.py,
-# Disconnected). Die CLI ist nach dem Verbinden aber beendet. Stirbt der Tunnel
-# ohne sie -- typisch nach dem Ruhezustand: OpenVPN läuft in den
-# ping-restart und beendet sich --, bleibt der Leckschutz stehen und
-# nichts löst mehr Namen auf.
+# Warum es das braucht: `protonvpn connect` hinterlässt Sperr-Verbindungen in
+# NetworkManager. Mit Kill Switch "standard" ist das "pvpn-killswitch" (ein
+# Dummy-Gerät als Standardroute, alles außer tun0 läuft ins Leere), mit Kill
+# Switch "off" nur der IPv6-Leckschutz "pvpn-killswitch-ipv6" (DNS ::1 mit
+# dns-priority -1400, damit schluckt er jede Namensauflösung). Abgebaut werden
+# beide nur vom Proton-Prozess, der das Trennen mitbekommt
+# (proton/vpn/connection/states.py, Disconnected). Die CLI ist nach dem
+# Verbinden aber beendet. Stirbt der Tunnel ohne sie -- typisch nach dem
+# Ruhezustand: OpenVPN läuft in den ping-restart und beendet sich --, bleibt
+# die Sperre stehen.
 #
-# Ablauf: steht der Leckschutz nicht (sauber getrennt), passiert nichts. Sonst
-# auf eine echte Standardroute warten und neu verbinden; klappt das nicht,
-# den Leckschutz entfernen, damit wenigstens das Netz ohne VPN geht.
+# Ablauf: steht keine Sperre (sauber getrennt), passiert nichts. Sonst auf eine
+# echte Standardroute warten und neu verbinden. Klappt das nicht, bleibt die
+# Sperre bewusst stehen -- lieber offline als ungetarnt. Aufheben nur mit
+# --release, also auf ausdrücklichen Wunsch.
 #
-# Exit: 0 nichts zu tun oder neu verbunden, 1 nur aufgeräumt (Grund auf
-# stdout), 2 läuft schon (anderer Schirm).
+# Exit: 0 nichts zu tun, neu verbunden oder freigegeben; 1 Neuverbinden
+# fehlgeschlagen, Netz bleibt gesperrt; 2 läuft schon (anderer Schirm).
 
-LEAK=pvpn-killswitch-ipv6
+LOCKS="pvpn-killswitch pvpn-killswitch-ipv6 pvpn-routed-killswitch"
+
+locked() {
+    nmcli -t -f NAME connection show --active | grep -q '^pvpn-.*killswitch'
+}
+
+if [ "$1" = "--check" ]; then
+    locked
+    exit
+fi
+
+if [ "$1" = "--release" ]; then
+    for c in $LOCKS; do
+        nmcli connection delete "$c" >/dev/null 2>&1
+    done
+    exit 0
+fi
 
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/vpnhub-proton-recover.lock"
 flock -n 9 || exit 2
 
-nmcli -t -f NAME connection show --active | grep -qx "$LEAK" || exit 0
+locked || exit 0
 
-# Echte Standardroute: nicht über die Dummy-Geräte von Proton.
+# Echte Standardroute: nicht über die Dummy-Geräte von Proton, nicht über tun.
 online() {
     ip -4 route show default | grep -v -q -e pvpn -e ipv6leak -e 'dev tun' -e '^$'
 }
@@ -47,6 +67,5 @@ if online; then
     done
 fi
 
-nmcli connection delete "$LEAK" >/dev/null 2>&1
-echo "Neu verbinden fehlgeschlagen – ohne VPN online"
+echo "Neu verbinden fehlgeschlagen – Netz bleibt gesperrt"
 exit 1

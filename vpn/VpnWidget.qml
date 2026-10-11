@@ -46,21 +46,31 @@ PluginComponent {
     readonly property var protonEntry: Model.protonActive(root.vpnActive)
     property bool protonBusy: false
     property string protonAction: ""
-    readonly property string protonState: root.protonBusy ? "busy" : Model.entryState(root.protonEntry)
+    // "error": Tunnel weg, Protons Sperre steht noch (siehe unten).
+    readonly property string protonState: root.protonBusy ? "busy"
+        : root.protonEntry ? Model.entryState(root.protonEntry)
+        : root.protonStranded ? "error" : "off"
 
     // Bricht der Tunnel ab, ohne dass wir getrennt haben (meist nach dem
-    // Ruhezustand), bleibt Protons IPv6-Leckschutz stehen und schluckt alles
-    // DNS. bin/proton-recover verbindet dann neu oder räumt ihn weg.
+    // Ruhezustand), bleibt Protons Sperre stehen: mit Kill Switch alles, ohne
+    // ihn per IPv6-Leckschutz jedes DNS. bin/proton-recover verbindet neu.
+    // Klappt das nicht, bleibt die Sperre bewusst stehen -- Proton gilt dann
+    // weiter als an, mit Fehler, bis man es ausschaltet (= Sperre aufheben).
     property var lastProtonTarget: null
+    property bool protonStranded: false
+    property var strandedTarget: null
     onProtonEntryChanged: {
         if (root.protonEntry) {
             root.lastProtonTarget = Model.parseTarget(Model.protonServer(root.protonEntry));
+            root.protonStranded = false;
             return;
         }
         const target = root.lastProtonTarget;
         root.lastProtonTarget = null;
-        if (target && !root.protonBusy && root.protonAction !== "disconnect" && root.protonUsable)
+        if (target && !root.protonBusy && root.protonAction !== "disconnect" && root.protonUsable) {
+            root.strandedTarget = target;
             root.protonRecover(target);
+        }
     }
 
     property var locations: ({ countries: [], error: "", fetchedAt: 0 })
@@ -84,6 +94,19 @@ PluginComponent {
                 state: Model.entryState(root.protonEntry)
             };
         }
+        if (root.protonStranded) {
+            const server = root.strandedTarget?.server || "";
+            const code = server ? Model.serverCountry(server) : "";
+            return {
+                kind: "proton",
+                title: "Verbindung unterbrochen",
+                subtitle: "Proton" + (server ? " · " + server : "") + " · Netz gesperrt",
+                flag: code ? Model.countryFlag(root.countries, code) : "",
+                device: "",
+                ip: "",
+                state: "error"
+            };
+        }
         const entry = (root.vpnActive || []).find(e => !Model.isProtonEntry(e));
         if (!entry)
             return null;
@@ -102,6 +125,7 @@ PluginComponent {
 
     readonly property var barIcon: Model.barIcon({
         protonOn: root.protonState === "on" || (root.protonBusy && root.protonAction === "connect"),
+        protonError: root.protonState === "error",
         anyOn: root.anyOn,
         busy: root.protonBusy || DMSNetworkService.vpnIsBusy
     })
@@ -224,12 +248,26 @@ PluginComponent {
             return;
         root.protonBusy = true;
         root.protonAction = "connect";
+        recoverProc.mode = "recover";
         recoverProc.command = [root.recoverPath].concat(Model.connectArgs(target).slice(2));
         recoverProc.running = true;
     }
 
+    // Bewusst ausschalten, während die Sperre steht: sie aufheben.
+    function protonRelease() {
+        if (protonProc.running || recoverProc.running)
+            return;
+        root.protonBusy = true;
+        root.protonAction = "disconnect";
+        recoverProc.mode = "release";
+        recoverProc.command = [root.recoverPath, "--release"];
+        recoverProc.running = true;
+    }
+
     function toggleProton() {
-        if (root.protonState === "on")
+        if (root.protonState === "error")
+            root.protonRelease();
+        else if (root.protonState === "on")
             root.protonDisconnect();
         else if (root.protonState === "off")
             root.protonConnect(root.protonDefault);
@@ -238,7 +276,9 @@ PluginComponent {
     // Der große Knopf im Kopf: trennt, was gerade steht, sonst verbindet er
     // Proton mit dem Standardziel.
     function heroAction() {
-        if (root.primary?.kind === "proton")
+        if (root.protonState === "error")
+            root.protonRelease();
+        else if (root.primary?.kind === "proton")
             root.protonDisconnect();
         else if (root.primary?.kind === "nm")
             root.toggleRow(root.rows.find(r => r.name === root.primary.name) || { name: root.primary.name, state: "on" });
@@ -359,8 +399,10 @@ PluginComponent {
         command: ["sh", "-c", "command -v protonvpn"]
         onExited: exitCode => {
             root.protonInstalled = exitCode === 0;
-            if (root.protonInstalled)
+            if (root.protonInstalled) {
                 root.refreshLocations(false);
+                root.checkLock();
+            }
         }
     }
 
@@ -395,9 +437,12 @@ PluginComponent {
         }
     }
 
-    // Exit 2 heißt: eine andere Instanz (zweiter Schirm) erledigt das schon.
+    // recover: Exit 0 = verbunden oder nichts gesperrt, 1 = gesperrt
+    // geblieben, 2 = eine andere Instanz (zweiter Schirm) erledigt das schon.
+    // Die erfährt den Ausgang über protonCheckLock.
     Process {
         id: recoverProc
+        property string mode: ""
         stdout: StdioCollector {
             id: recoverOut
             waitForEnd: true
@@ -405,10 +450,48 @@ PluginComponent {
         onExited: exitCode => {
             Qt.callLater(() => {
                 root.protonBusy = false;
-                if (exitCode === 1)
-                    ToastService.showWarning("Proton VPN", recoverOut.text.trim());
+                if (recoverProc.mode === "release") {
+                    root.protonStranded = false;
+                } else if (exitCode === 1) {
+                    root.protonStranded = true;
+                    ToastService.showWarning("Proton VPN", recoverOut.text.trim(), "Proton ausschalten hebt die Sperre auf");
+                } else if (exitCode === 2) {
+                    lockCheckDelay.restart();
+                } else {
+                    root.protonStranded = false;
+                }
                 DMSNetworkService.refreshVpnActive();
             });
+        }
+    }
+
+    // Steht die Sperre ohne Tunnel? Beim Start (Shell neu gestartet) und für
+    // Instanzen, deren Neuverbinden eine andere übernommen hat.
+    Process {
+        id: protonCheckLock
+        onExited: exitCode => root.protonStranded = exitCode === 0 && !root.protonEntry
+    }
+
+    function checkLock() {
+        if (!root.protonUsable || protonCheckLock.running)
+            return;
+        protonCheckLock.command = [root.recoverPath, "--check"];
+        protonCheckLock.running = true;
+    }
+
+    // Wartezeit des Skripts: bis 60 s auf Netz, dann bis zu drei Versuche.
+    Timer {
+        id: lockCheckDelay
+        interval: 5000
+        repeat: true
+        property int rounds: 0
+        onTriggered: {
+            root.checkLock();
+            rounds++;
+            if (root.protonEntry || rounds >= 24) {
+                stop();
+                rounds = 0;
+            }
         }
     }
 
@@ -548,7 +631,7 @@ PluginComponent {
         name: root.barIcon.name
         filled: root.barIcon.filled
         size: root.barIconPx
-        color: root.barIcon.active ? Theme.primary : Theme.widgetIconColor
+        color: root.barIcon.error ? Theme.error : root.barIcon.active ? Theme.primary : Theme.widgetIconColor
 
         SequentialAnimation on opacity {
             running: root.barIcon.busy
@@ -784,7 +867,7 @@ PluginComponent {
                                             name: root.barIcon.name
                                             filled: root.barIcon.filled
                                             size: 36
-                                            color: root.barIcon.active ? Theme.primary : Theme.surfaceVariantText
+                                            color: root.barIcon.error ? Theme.error : root.barIcon.active ? Theme.primary : Theme.surfaceVariantText
                                         }
                                     }
 
@@ -820,6 +903,7 @@ PluginComponent {
                                     enabled: !root.protonBusy
                                     opacity: enabled ? 1 : 0.5
                                     text: root.protonBusy ? (root.protonAction === "connect" ? "Verbindet …" : "Trennt …")
+                                        : root.protonState === "error" ? "Ausschalten und Netz freigeben"
                                         : root.primary?.kind === "proton" ? "Proton VPN trennen"
                                         : root.primary ? "Trennen"
                                         : "Proton VPN verbinden"
@@ -957,16 +1041,18 @@ PluginComponent {
 
                         EntryRow {
                             visible: root.protonUsable
-                            iconName: root.protonState === "on" ? Model.ICON_PROTON : "shield"
-                            flag: root.protonEntry ? (root.primary?.flag || "") : ""
+                            iconName: root.protonState === "error" ? Model.ICON_PROTON_ERROR
+                                : root.protonState === "on" ? Model.ICON_PROTON : "shield"
+                            flag: root.protonEntry || root.protonStranded ? (root.primary?.flag || "") : ""
                             title: "Proton VPN"
                             subtitle: root.protonState === "busy" ? (root.protonAction === "disconnect" ? "trennt …" : "verbindet …")
+                                : root.protonState === "error" ? "Verbindung unterbrochen – Netz gesperrt"
                                 : root.protonEntry ? Model.protonServer(root.protonEntry)
                                 : Model.targetLabel(root.protonDefault, root.countries).title
                             active: root.protonState === "on"
                             trailing: Component {
                                 DankToggle {
-                                    checked: root.protonState === "on" || (root.protonBusy && root.protonAction === "connect")
+                                    checked: root.protonState === "on" || root.protonState === "error" || (root.protonBusy && root.protonAction === "connect")
                                     enabled: root.protonState !== "busy"
                                     opacity: enabled ? 1 : 0.5
                                     onToggled: root.toggleProton()

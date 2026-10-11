@@ -186,6 +186,9 @@ PluginComponent {
 
     // Eine laufende Aufnahme soll auffallen -- rot statt Akzentfarbe.
     function farbeFuer(id, aktiv) {
+        // VPN mit Warnschild: Proton gilt als an, der Tunnel fehlt.
+        if (id === "vpn" && (root.vpnZustand?.error ?? false))
+            return Theme.error
         if (!aktiv)
             return Theme.widgetTextColor
         return id === "aufnahme" ? Theme.error : Theme.primary

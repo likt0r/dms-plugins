@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
@@ -60,6 +61,61 @@ PluginSettings {
         description: "Wohin der große Knopf und der Schalter verbinden: leer = schnellster Server, ein Ländercode wie DE oder CH, ein Server wie DE#12 oder eine Stadt wie Berlin"
         placeholder: "schnellster Server"
         defaultValue: ""
+    }
+
+    // Der Kill Switch ist eine Einstellung der Proton-CLI, nicht des Plugins:
+    // gelesen mit `protonvpn config list`, geschrieben mit `config set`. Die
+    // CLI kennt nur off und standard; "permanent" gibt es nur in der App.
+    property string killSwitch: ""
+    property string killSwitchError: ""
+
+    Process {
+        id: killSwitchRead
+        command: ["protonvpn", "config", "list"]
+        running: true
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                const m = /^kill-switch\s+(\S+)/m.exec(text);
+                root.killSwitch = m ? m[1] : "";
+            }
+        }
+    }
+
+    Process {
+        id: killSwitchWrite
+        stderr: StdioCollector {
+            id: killSwitchErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                root.killSwitchError = exitCode === 0 ? "" : (killSwitchErr.text.trim() || "Code " + exitCode);
+                killSwitchRead.running = true;
+            });
+        }
+    }
+
+    DankToggle {
+        width: parent.width
+        visible: root.killSwitch !== ""
+        text: "Kill Switch"
+        description: "Bricht der Tunnel ab, ist das ganze Netz gesperrt, bis Proton wieder verbunden ist oder du es ausschaltest. Aus: nach einem Abbruch ist nur DNS gesperrt (IPv6-Leckschutz), Verbindungen zu festen Adressen laufen ungeschützt weiter. Gilt ab der nächsten Verbindung."
+        checked: root.killSwitch === "standard"
+        enabled: !killSwitchWrite.running
+        onToggled: checked => {
+            killSwitchWrite.command = ["protonvpn", "config", "set", "kill-switch", checked ? "standard" : "off"];
+            killSwitchWrite.running = true;
+        }
+    }
+
+    StyledText {
+        visible: root.killSwitchError !== ""
+        width: parent.width
+        text: "Kill Switch: " + root.killSwitchError
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.error
+        wrapMode: Text.WordWrap
     }
 
     // --- Anzeige --------------------------------------------------------------

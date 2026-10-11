@@ -170,10 +170,11 @@ test("country badges show plain codes, with Proton's UK mapped to GB", () => {
 })
 
 test("the bar icon shows a shield for Proton and a lock for other tunnels", () => {
-  assert.deepEqual(Model.barIcon({}), { name: "vpn_key_off", filled: false, active: false, busy: false })
-  assert.deepEqual(Model.barIcon({ anyOn: true }), { name: "vpn_lock", filled: false, active: true, busy: false })
-  assert.deepEqual(Model.barIcon({ protonOn: true, anyOn: true }), { name: "shield_lock", filled: true, active: true, busy: false })
-  assert.deepEqual(Model.barIcon({ protonOn: true, busy: true }), { name: "shield_lock", filled: true, active: true, busy: true })
+  assert.deepEqual(Model.barIcon({}), { name: "vpn_key_off", filled: false, active: false, busy: false, error: false })
+  assert.deepEqual(Model.barIcon({ anyOn: true }), { name: "vpn_lock", filled: false, active: true, busy: false, error: false })
+  assert.deepEqual(Model.barIcon({ protonOn: true, anyOn: true }), { name: "shield_lock", filled: true, active: true, busy: false, error: false })
+  assert.deepEqual(Model.barIcon({ protonOn: true, busy: true }), { name: "shield_lock", filled: true, active: true, busy: true, error: false })
+  assert.deepEqual(Model.barIcon({ protonError: true }), { name: "gpp_maybe", filled: true, active: true, busy: false, error: true })
 })
 
 test("recents keep the newest first and never duplicate", () => {

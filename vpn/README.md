@@ -98,6 +98,7 @@ Einstellungen → Plugins → VPN Hub:
 |---|---|---|
 | Proton VPN einbinden | `protonEnabled` | Reiter „Länder“, Proton-Zeile, Zuletzt/Favoriten |
 | Standardziel | `protonTarget` | leer = schnellster Server, `DE`, `DE#12` oder eine Stadt |
+| Kill Switch | – (Proton-CLI) | `protonvpn config set kill-switch off\|standard` |
 | Verbindung in der Bar nennen | `showLabel` | Text neben dem Icon (bei Proton das Land) |
 | je NM-Profil: im Popout zeigen, Anzeigename, eigener Befehl | `connections` | Objekt, Schlüssel = Profilname |
 
@@ -168,17 +169,26 @@ Fehler meldet DMS als Toast, Passwörter fragt DMS ab. Proton über
 Ausgabe (Exit 2). Läuft die Proton-App, verweigert die CLI mit Exit 0. Deshalb
 liest das Widget die Ausgabe und verlässt sich nicht auf den Exit-Code.
 
-**Abbruch, etwa nach dem Ruhezustand.** Ist der Kill Switch aus, schaltet
-`protonvpn connect` trotzdem einen IPv6-Leckschutz ein: die NM-Verbindung
-`pvpn-killswitch-ipv6` mit DNS `::1` und negativer DNS-Priorität. Solange tun0
-fehlt, läuft damit jede Namensauflösung ins Leere. Wegräumen würde ihn nur ein
-Proton-Prozess, der das Trennen mitbekommt. Die CLI läuft nach dem Verbinden
-aber nicht mehr. Verschwindet die Proton-Verbindung, ohne dass das Widget
-getrennt hat, startet es deshalb `bin/proton-recover`. Steht der Leckschutz
-noch, wartet das Skript auf eine echte Standardroute und verbindet neu mit
-demselben Server. Klappt das nicht, löscht es den Leckschutz, damit das Netz
-wenigstens ohne VPN geht, und meldet das als Toast. Ein `flock` verhindert,
+**Abbruch, etwa nach dem Ruhezustand.** `protonvpn connect` hinterlässt
+Sperren in NetworkManager. Mit Kill Switch ist das `pvpn-killswitch` und sperrt
+alles außer tun0. Ohne Kill Switch bleibt nur der IPv6-Leckschutz
+`pvpn-killswitch-ipv6` mit DNS `::1` und negativer DNS-Priorität, der jede
+Namensauflösung schluckt. Feste IPs laufen dann trotzdem ungeschützt raus.
+Wegräumen würde die Sperren nur ein Proton-Prozess, der das Trennen mitbekommt.
+Die CLI läuft nach dem Verbinden aber nicht mehr, und so bleibt die Sperre
+stehen, wenn der Tunnel stirbt. Verschwindet die Proton-Verbindung, ohne dass
+das Widget getrennt hat, startet es `bin/proton-recover`: Steht eine Sperre,
+wartet das Skript auf eine echte Standardroute und verbindet neu mit demselben
+Server. Klappt das nicht, bleibt die Sperre stehen, denn lieber offline als
+ungetarnt. Proton gilt dann weiter als an, mit Warnschild (`gpp_maybe`,
+Fehlerfarbe) und „Verbindung unterbrochen“. Ausschalten (Schalter oder großer
+Knopf) hebt die Sperre auf (`proton-recover --release`). Nach einem
+Shell-Neustart erkennt `--check` den Zustand wieder. Ein `flock` verhindert,
 dass mehrere Schirme gleichzeitig neu verbinden.
+
+**Kill Switch.** Schalter in den Einstellungen. Er liest und setzt die
+Einstellung der CLI (`protonvpn config list`, `protonvpn config set kill-switch
+off|standard`); „permanent“ gibt es nur in der App.
 
 **Standorte.** Die Proton-Bibliothek speichert die Serverliste unter
 `~/.cache/Proton/VPN/serverlist.json` (rund 20 MB, über 17 000 Server).

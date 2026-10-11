@@ -14,6 +14,8 @@ var ICON_ON = "vpn_lock"
 var ICON_OFF = "vpn_key_off"
 // Bar-Icon, solange Proton verbunden ist (oder gerade verbindet).
 var ICON_PROTON = "shield_lock"
+// Proton gilt als an, der Tunnel fehlt aber und die Sperre steht.
+var ICON_PROTON_ERROR = "gpp_maybe"
 
 // proton/vpn/backend/networkmanager: f"ProtonVPN {server_name}", Gerät proton0.
 var PROTON_PREFIX = "ProtonVPN "
@@ -355,14 +357,17 @@ function icon(options) {
 
 // Zustand des Bar-Icons: Schild für Proton, Schloss für andere Tunnel,
 // durchgestrichener Schlüssel ohne Verbindung; busy lässt es pulsieren.
+// protonError: Tunnel weg, Sperre steht -- Warnschild, zählt als aktiv.
 function barIcon(options) {
   var o = options || {}
-  var proton = !!o.protonOn
+  var error = !!o.protonError
+  var proton = !!o.protonOn || error
   return {
-    name: proton ? ICON_PROTON : icon({ connected: o.anyOn }),
+    name: error ? ICON_PROTON_ERROR : proton ? ICON_PROTON : icon({ connected: o.anyOn }),
     filled: proton,
     active: proton || !!o.anyOn,
-    busy: !!o.busy
+    busy: !!o.busy,
+    error: error
   }
 }
 
@@ -371,6 +376,7 @@ if (typeof module !== "undefined") {
     ICON_ON: ICON_ON,
     ICON_OFF: ICON_OFF,
     ICON_PROTON: ICON_PROTON,
+    ICON_PROTON_ERROR: ICON_PROTON_ERROR,
     PROTON_PREFIX: PROTON_PREFIX,
     FEATURES: FEATURES,
     FEATURE_LABELS: FEATURE_LABELS,
