@@ -20,6 +20,10 @@ import "Model.js" as Model
 //     DMS) oder über ein eigenes Skript aus den Einstellungen,
 //   - Proton über `protonvpn connect|disconnect`.
 //
+// Eigene Fehler gehen als Desktop-Benachrichtigung raus (melden), nicht als
+// Toast: die bleibt im Benachrichtigungszentrum stehen. Volle Details landen
+// im Journal von dms.service (protokoll), Präfix [vpnHub].
+//
 // Zuordnung Omarchy -> DMS: docs/omarchy-to-dms.md im dotfiles-Repo.
 PluginComponent {
     id: root
@@ -205,6 +209,24 @@ PluginComponent {
         fenster.toggle();
     }
 
+    // --- Fehler & Log -----------------------------------------------------------
+    // console.warn landet im Journal (journalctl --user -u dms -g '\[vpnHub\]'),
+    // das Log unter /run/user/…/quickshell ist nach dem Neustart weg.
+    function protokoll(text) {
+        console.warn("[vpnHub] " + text);
+    }
+
+    // Kurzer Grund in die Benachrichtigung, alles Weitere vorher per
+    // protokoll(). Nicht transient, damit sie in der Historie bleibt;
+    // critical nur, wenn das Netz gesperrt ist (kommt auch bei "Nicht stören").
+    // app: "Proton VPN" für die CLI, "VPN" für NetworkManager und Skripte.
+    function melden(titel, text, dringlich, app) {
+        const absender = app || "Proton VPN";
+        root.protokoll(absender + ": " + titel + (text ? " – " + text : ""));
+        Quickshell.execDetached(["notify-send", "-a", absender, "-i", "network-vpn",
+            "-u", dringlich === "critical" ? "critical" : "normal", titel, text || ""]);
+    }
+
     // --- Aktionen -------------------------------------------------------------
 
     function toggleRow(row) {
@@ -212,7 +234,11 @@ PluginComponent {
             return;
         const isOn = row.state === "on";
         if (Model.hasCustomCommand(row)) {
-            scriptProc.command = [row.toggleCommand.trim()];
+            // Über sh, damit ein falscher Pfad mit Exit 127 und stderr endet
+            // statt gar nicht zu starten (dann käme kein onExited). Der Befehl
+            // selbst läuft weiter ohne Shell-Auswertung, "$0" ist er.
+            scriptProc.name = row.title || row.name;
+            scriptProc.command = ["sh", "-c", "exec \"$0\"", row.toggleCommand.trim()];
             scriptProc.running = true;
             return;
         }
@@ -402,8 +428,22 @@ PluginComponent {
             if (root.protonInstalled) {
                 root.refreshLocations(false);
                 root.checkLock();
+            } else if (root.protonEnabled) {
+                root.protonFehlt();
             }
         }
+    }
+
+    // Einmal je Shell-Start melden, nicht je Schirm: jede Instanz prüft
+    // selbst, die Marke liegt deshalb in globalVars wie der Anker.
+    function protonFehlt() {
+        root.protokoll("protonvpn nicht im PATH, Proton-Teil bleibt aus");
+        if (PluginService.getGlobalVar("vpnHub", "cliFehltGemeldet", false))
+            return;
+        PluginService.setGlobalVar("vpnHub", "cliFehltGemeldet", true);
+        root.melden("Proton-CLI nicht gefunden",
+            "Paket proton-vpn-cli installieren und einmal 'protonvpn signin <benutzer>' ausführen – oder in den Einstellungen „Proton VPN einbinden“ ausschalten.",
+            "normal");
     }
 
     Process {
@@ -424,7 +464,9 @@ PluginComponent {
                 const error = Model.cliError(output, exitCode);
                 root.protonBusy = false;
                 if (error !== "") {
-                    ToastService.showError("Proton VPN", error);
+                    root.protokoll(protonProc.command.join(" ") + " → Exit " + exitCode + "\n" + output.trim());
+                    root.melden(root.protonAction === "disconnect" ? "Trennen fehlgeschlagen" : "Verbindung fehlgeschlagen",
+                        error, "normal");
                 } else if (root.protonAction === "connect" && protonProc.target) {
                     root.recents = Model.pushRecent(root.recents, protonProc.target, 6);
                     pluginService?.savePluginState(root.pluginId, "protonRecents", root.recents);
@@ -439,7 +481,9 @@ PluginComponent {
 
     // recover: Exit 0 = verbunden oder nichts gesperrt, 1 = gesperrt
     // geblieben, 2 = eine andere Instanz (zweiter Schirm) erledigt das schon.
-    // Die erfährt den Ausgang über protonCheckLock.
+    // Die erfährt den Ausgang über protonCheckLock. release: 1 = die Sperre
+    // steht noch. Bei 1 steht der Grund auf stdout (eine Zeile), Einzelheiten
+    // je Versuch im Journal (-t vpnhub-proton-recover).
     Process {
         id: recoverProc
         property string mode: ""
@@ -447,14 +491,29 @@ PluginComponent {
             id: recoverOut
             waitForEnd: true
         }
+        stderr: StdioCollector {
+            id: recoverErr
+            waitForEnd: true
+        }
         onExited: exitCode => {
             Qt.callLater(() => {
                 root.protonBusy = false;
+                const grund = Model.lastLine(recoverOut.text).replace(/\.$/, "") || ("Exit " + exitCode);
+                if (exitCode === 1)
+                    root.protokoll("proton-recover " + recoverProc.mode + " → Exit 1: " + recoverOut.text.trim()
+                        + (recoverErr.text.trim() ? "\n" + recoverErr.text.trim() : ""));
                 if (recoverProc.mode === "release") {
-                    root.protonStranded = false;
+                    // Lieber weiter als gesperrt anzeigen, als "aus" zu
+                    // behaupten, während kein Netz geht.
+                    if (exitCode === 1) {
+                        root.protonStranded = true;
+                        root.melden("Sperre ließ sich nicht aufheben", grund + ". Erneut ausschalten; Details: journalctl -t vpnhub-proton-recover", "critical");
+                    } else {
+                        root.protonStranded = false;
+                    }
                 } else if (exitCode === 1) {
                     root.protonStranded = true;
-                    ToastService.showWarning("Proton VPN", recoverOut.text.trim(), "Proton ausschalten hebt die Sperre auf");
+                    root.melden("Netz gesperrt", "Neu verbinden fehlgeschlagen: " + grund + ". Proton ausschalten hebt die Sperre auf.", "critical");
                 } else if (exitCode === 2) {
                     lockCheckDelay.restart();
                 } else {
@@ -497,18 +556,45 @@ PluginComponent {
 
     Process {
         id: scriptProc
-        onExited: DMSNetworkService.refreshVpnActive()
+        property string name: ""
+        stderr: StdioCollector {
+            id: scriptErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                if (exitCode !== 0) {
+                    root.protokoll("Umschaltbefehl " + scriptProc.command.slice(3).join(" ") + " → Exit " + exitCode
+                        + (scriptErr.text.trim() ? "\n" + scriptErr.text.trim() : ""));
+                    root.melden(scriptProc.name + ": Umschalten fehlgeschlagen",
+                        "Exit " + exitCode + (Model.lastLine(scriptErr.text) ? ": " + Model.lastLine(scriptErr.text) : ""),
+                        "normal", "VPN");
+                }
+                DMSNetworkService.refreshVpnActive();
+            });
+        }
     }
 
+    // Fehler bleiben inline im Länder-Reiter (Model.locationsResult); ins Log
+    // kommt das volle stderr, etwa der Traceback des Helfers.
     Process {
         id: locationsProc
         stdout: StdioCollector {
+            id: locationsOut
             waitForEnd: true
-            onStreamFinished: {
-                const parsed = Model.parseLocations(text);
-                if (parsed)
-                    root.locations = parsed;
-            }
+        }
+        stderr: StdioCollector {
+            id: locationsErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                const result = Model.locationsResult(locationsOut.text, locationsErr.text, exitCode, root.locations);
+                if (exitCode !== 0 || !Model.parseLocations(locationsOut.text))
+                    root.protokoll("proton-locations → Exit " + exitCode + ": "
+                        + (locationsErr.text.trim() || locationsOut.text.trim().slice(0, 500) || "keine Ausgabe"));
+                root.locations = result;
+            });
         }
     }
 

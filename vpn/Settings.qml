@@ -71,17 +71,33 @@ PluginSettings {
     readonly property bool protonConnected: Model.protonActive(DMSNetworkService.vpnActive) !== null
     property string killSwitch: ""
     property string killSwitchError: ""
+    // Lesen gescheitert (CLI fehlt oder bricht ab): ohne Hinweis verschwände
+    // der Schalter einfach.
+    property bool killSwitchUnavailable: false
 
+    // Über sh, damit eine fehlende CLI mit Exit 127 endet statt gar nicht zu
+    // starten (dann käme kein onExited).
     Process {
         id: killSwitchRead
-        command: ["protonvpn", "config", "list"]
+        command: ["sh", "-c", "exec protonvpn config list"]
         running: true
         stdout: StdioCollector {
+            id: killSwitchListOut
             waitForEnd: true
-            onStreamFinished: {
-                const m = /^kill-switch\s+(\S+)/m.exec(text);
-                root.killSwitch = m ? m[1] : "";
-            }
+        }
+        stderr: StdioCollector {
+            id: killSwitchListErr
+            waitForEnd: true
+        }
+        onExited: exitCode => {
+            Qt.callLater(() => {
+                const m = /^kill-switch\s+(\S+)/m.exec(killSwitchListOut.text);
+                root.killSwitch = exitCode === 0 && m ? m[1] : "";
+                root.killSwitchUnavailable = root.killSwitch === "";
+                if (root.killSwitchUnavailable)
+                    console.warn("[vpnHub] protonvpn config list → Exit " + exitCode + ": "
+                        + (killSwitchListErr.text.trim() || killSwitchListOut.text.trim() || "keine kill-switch-Zeile"));
+            });
         }
     }
 
@@ -98,6 +114,9 @@ PluginSettings {
         onExited: exitCode => {
             Qt.callLater(() => {
                 root.killSwitchError = Model.cliError(killSwitchOut.text + "\n" + killSwitchErr.text, exitCode);
+                if (root.killSwitchError !== "")
+                    console.warn("[vpnHub] " + killSwitchWrite.command.join(" ") + " → Exit " + exitCode + "\n"
+                        + (killSwitchOut.text + "\n" + killSwitchErr.text).trim());
                 killSwitchRead.running = true;
             });
         }
@@ -116,6 +135,15 @@ PluginSettings {
             killSwitchWrite.command = ["protonvpn", "config", "set", "kill-switch", checked ? "standard" : "off"];
             killSwitchWrite.running = true;
         }
+    }
+
+    StyledText {
+        visible: root.killSwitchUnavailable
+        width: parent.width
+        text: "Kill Switch: Proton-CLI nicht verfügbar"
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.error
+        wrapMode: Text.WordWrap
     }
 
     StyledText {

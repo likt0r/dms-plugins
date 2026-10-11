@@ -37,7 +37,7 @@ protonvpn signin <benutzer>              # einmalig, interaktiv
 ```
 
 Die Proton-VPN-App (Flatpak oder RPM) darf dabei nicht laufen. Läuft sie,
-verweigert sich die CLI, und das Widget meldet das als Toast.
+verweigert sich die CLI, und das Widget meldet das als Benachrichtigung.
 
 ## Bedienung
 
@@ -181,8 +181,10 @@ das Widget getrennt hat, startet es `bin/proton-recover`: Steht eine Sperre,
 wartet das Skript auf eine echte Standardroute und verbindet neu mit demselben
 Server. Klappt das nicht, bleibt die Sperre stehen, denn lieber offline als
 ungetarnt. Proton gilt dann weiter als an, mit Warnschild (`gpp_maybe`,
-Fehlerfarbe) und „Verbindung unterbrochen“. Ausschalten (Schalter oder großer
-Knopf) hebt die Sperre auf (`proton-recover --release`). Nach einem
+Fehlerfarbe) und „Verbindung unterbrochen“, dazu kommt eine dringende
+Benachrichtigung „Netz gesperrt“ mit dem Grund. Ausschalten (Schalter oder
+großer Knopf) hebt die Sperre auf (`proton-recover --release`). Steht sie
+danach noch, bleibt der Fehlerzustand und es gibt eine Benachrichtigung. Nach einem
 Shell-Neustart erkennt `--check` den Zustand wieder. Ein `flock` verhindert,
 dass mehrere Schirme gleichzeitig neu verbinden.
 
@@ -216,6 +218,25 @@ keinen), der Mittelklick (gibt es in `PluginComponent` nicht), `Lock.js` (unter
 DMS antwortet nur eine Instanz auf IPC) und das Polling per `nmcli`. Aus der
 Vorlage proton.omarchy bewusst nicht übernommen: Gateways, Profile,
 Split-Tunneling, Konto-, Support- und Diagnoseseiten, der Backend-Installer.
+
+## Fehler & Log
+
+Fehler kommen als Desktop-Benachrichtigung (Absender „Proton VPN“, bei
+NM-Profilen und eigenen Umschaltbefehlen „VPN“). Sie bleiben im
+Benachrichtigungszentrum. Dringend (`critical`, auch bei „Nicht stören“) ist
+nur das gesperrte Netz. Fehler, die nur im Hintergrund auftreten, melden sich
+einmal. Die Proton-CLI fehlt, obwohl Proton eingebunden ist? Dann kommt einmal
+je Shell-Start eine Meldung. Im Popout bleiben inline: der Fehler der
+Standortliste (Reiter „Länder“) und in den Einstellungen die Kill-Switch-Fehler
+(auch „Proton-CLI nicht verfügbar“).
+
+Die Benachrichtigung zeigt nur den kurzen Grund. Den vollen Befehl, den
+Exit-Code und das ganze stderr schreibt das Widget ins Journal von DMS:
+
+```sh
+journalctl --user -u dms -g '\[vpnHub\]'
+journalctl -t vpnhub-proton-recover     # Neuverbinden/Freigeben nach Abbruch, je Versuch
+```
 
 ## Aufbau
 

@@ -309,6 +309,32 @@ function parseLocations(text) {
   }
 }
 
+// Letzte nicht leere Zeile -- der kurze Grund für eine Benachrichtigung; das
+// volle stderr geht ins Log.
+function lastLine(text) {
+  var lines = String(text || "").split("\n")
+  for (var i = lines.length - 1; i >= 0; i--) {
+    var line = lines[i].trim()
+    if (line !== "") return line
+  }
+  return ""
+}
+
+// Ergebnis eines Laufs von bin/proton-locations. Stirbt der Helfer (Exit ≠ 0,
+// Traceback) oder liefert kein JSON, bleibt die bisherige Liste stehen und
+// der Fehler erscheint inline -- sonst stünde dort ewig "wird geladen".
+function locationsResult(stdout, stderr, exitCode, previous) {
+  var parsed = exitCode === 0 ? parseLocations(stdout) : null
+  if (parsed) return parsed
+  var prev = previous || {}
+  var reason = lastLine(stderr) || (exitCode !== 0 ? "Exit " + exitCode : "keine gültige Antwort")
+  return {
+    countries: prev.countries || [],
+    fetchedAt: prev.fetchedAt || 0,
+    error: "Standorte nicht lesbar: " + reason
+  }
+}
+
 // --- Traffic -----------------------------------------------------------------
 
 function formatRate(bytesPerSec) {
@@ -409,6 +435,8 @@ if (typeof module !== "undefined") {
     anyConnected: anyConnected,
     filterCountries: filterCountries,
     parseLocations: parseLocations,
+    lastLine: lastLine,
+    locationsResult: locationsResult,
     formatRate: formatRate,
     formatBytes: formatBytes,
     rate: rate,

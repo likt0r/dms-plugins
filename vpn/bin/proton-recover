@@ -22,12 +22,31 @@
 # --release, also auf ausdrücklichen Wunsch.
 #
 # Exit: 0 nichts zu tun, neu verbunden oder freigegeben; 1 Neuverbinden
-# fehlgeschlagen, Netz bleibt gesperrt; 2 läuft schon (anderer Schirm).
+# fehlgeschlagen bzw. Sperre nicht aufgehoben, Netz bleibt gesperrt; 2 läuft
+# schon (anderer Schirm). Bei 1 steht der Grund als eine Zeile auf stdout --
+# das Widget setzt ihn in seine Benachrichtigung. Jeden gescheiterten Versuch
+# mit voller Ausgabe gibt es im Journal: journalctl -t vpnhub-proton-recover.
 
 LOCKS="pvpn-killswitch pvpn-killswitch-ipv6 pvpn-routed-killswitch"
 
 locked() {
     nmcli -t -f NAME connection show --active | grep -q '^pvpn-.*killswitch'
+}
+
+# Ins Journal und auf stderr; Zeilenumbrüche flach, sonst zerfällt die
+# Ausgabe der CLI im Journal in Einzelteile ohne Zusammenhang.
+log() {
+    msg=$(printf '%s' "$*" | tr '\n' ' ')
+    logger -t vpnhub-proton-recover -p user.err -- "$msg" 2>/dev/null
+    printf '%s\n' "$msg" >&2
+}
+
+# Der kurze Grund aus einer CLI-Ausgabe: die letzte "Error:"-Zeile, sonst die
+# letzte nicht leere.
+reason() {
+    r=$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*Error:[[:space:]]*//p' | tail -n 1)
+    [ -n "$r" ] || r=$(printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | tail -n 1 | sed 's/^[[:space:]]*//')
+    printf '%s' "$r"
 }
 
 if [ "$1" = "--check" ]; then
@@ -36,9 +55,23 @@ if [ "$1" = "--check" ]; then
 fi
 
 if [ "$1" = "--release" ]; then
+    # Nur löschen, was es gibt: ein "unknown connection" für die übrigen
+    # Namen wäre sonst der vermeintliche Grund.
+    why=""
     for c in $LOCKS; do
-        nmcli connection delete "$c" >/dev/null 2>&1
+        nmcli -t -f NAME connection show | grep -qx "$c" || continue
+        if ! out=$(nmcli connection delete "$c" 2>&1); then
+            log "nmcli connection delete $c: $out"
+            why=$(reason "$out")
+        fi
     done
+    if locked; then
+        left=$(nmcli -t -f NAME connection show --active | grep '^pvpn-.*killswitch' | tr '\n' ' ')
+        [ -n "$why" ] || why="Sperre steht noch (${left% })"
+        log "release: Sperre steht noch (${left% }): $why"
+        echo "$why"
+        exit 1
+    fi
     exit 0
 fi
 
@@ -59,13 +92,20 @@ while ! online && [ $i -lt 60 ]; do
 done
 
 if online; then
-    for _ in 1 2 3; do
-        if protonvpn connect "$@" >/dev/null 2>&1; then
-            exit 0
-        fi
-        sleep 5
+    why=""
+    for n in 1 2 3; do
+        out=$(protonvpn connect "$@" 2>&1)
+        rc=$?
+        [ $rc -eq 0 ] && exit 0
+        why=$(reason "$out")
+        [ -n "$why" ] || why="protonvpn connect endete mit Code $rc"
+        log "Versuch $n/3: protonvpn connect $* → Exit $rc: $out"
+        [ $n -lt 3 ] && sleep 5
     done
+else
+    why="kein Netz (nach 60 s keine Standardroute)"
+    log "$why"
 fi
 
-echo "Neu verbinden fehlgeschlagen – Netz bleibt gesperrt"
+echo "$why"
 exit 1

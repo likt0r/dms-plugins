@@ -226,6 +226,24 @@ test("a locations payload that is not the helper's JSON never throws", () => {
   assert.equal(Model.parseLocations('{"countries":[]}').countries.length, 0)
 })
 
+test("a failed locations helper shows an inline error and keeps the list", () => {
+  const ok = Model.locationsResult('{"countries":[{"code":"CH"}],"error":"","fetchedAt":5}', "", 0, null)
+  assert.equal(ok.countries.length, 1)
+  const prev = { countries: [{ code: "CH" }], error: "", fetchedAt: 5 }
+  const crashed = Model.locationsResult("", "Traceback (most recent call last):\n  File x\nKeyError: 'Servers'\n", 1, prev)
+  assert.equal(crashed.error, "Standorte nicht lesbar: KeyError: 'Servers'")
+  assert.equal(crashed.countries, prev.countries, "the last good list stays")
+  assert.match(Model.locationsResult("", "", 1, null).error, /Exit 1/)
+  assert.match(Model.locationsResult("kaputt", "", 0, null).error, /keine gültige Antwort/)
+  assert.deepEqual(Model.locationsResult("kaputt", "", 0, null).countries, [])
+})
+
+test("the short reason of a failure is the last non-empty line", () => {
+  assert.equal(Model.lastLine("a\nError: kaputt\n\n  \n"), "Error: kaputt")
+  assert.equal(Model.lastLine(""), "")
+  assert.equal(Model.lastLine(undefined), "")
+})
+
 // --- Traffic -----------------------------------------------------------------
 
 test("byte counts and rates read like the template's", () => {
