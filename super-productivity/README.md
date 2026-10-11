@@ -143,7 +143,8 @@ Referenz gibt es nicht):
 | GET | `/projects` | Projekte (Name, Farbe, Reihenfolge) |
 
 „Heute“ rechnet das Plugin wie SP selbst: `dueWithTime` innerhalb des Tages,
-sonst `dueDay` gleich heute. Überfällige Tasks zeigt es zusätzlich an.
+sonst `dueDay` gleich heute. Überfällige Tasks zeigt es zusätzlich an, mit
+einem roten Kalender-Icon vor dem Titel.
 
 ## Tests
 

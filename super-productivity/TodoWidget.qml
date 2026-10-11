@@ -870,11 +870,26 @@ PluginComponent {
                 }
             }
 
+            // Ueberfaellig: rotes Kalender-Icon vor dem Titel. Rechts in der
+            // Meta-Spalte stand frueher "ueberfaellig" und tauschte beim
+            // Ueberfahren mit den Knoepfen -- das sprang und wirkte
+            // uebereinander.
+            DankIcon {
+                id: overdueIcon
+                visible: taskItem.row.due === "overdue" && !taskItem.editing
+                anchors.left: check.right
+                anchors.leftMargin: Theme.spacingS
+                anchors.verticalCenter: parent.verticalCenter
+                name: "event_busy"
+                size: 16
+                color: Theme.error
+            }
+
             StyledText {
                 id: titleText
                 visible: !taskItem.editing
-                anchors.left: check.right
-                anchors.leftMargin: Theme.spacingS
+                anchors.left: overdueIcon.visible ? overdueIcon.right : check.right
+                anchors.leftMargin: overdueIcon.visible ? Theme.spacingXS : Theme.spacingS
                 anchors.verticalCenter: parent.verticalCenter
                 // So breit wie der Titel, damit der Notiz-Marker direkt
                 // dahinter sitzt; hoechstens bis vor die Meta-Spalte.
@@ -929,14 +944,6 @@ PluginComponent {
                 anchors.rightMargin: Theme.spacingXS
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.spacingXS
-
-                StyledText {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: taskItem.row.due === "overdue" && !taskItem.showActions
-                    text: "überfällig"
-                    color: Theme.error
-                    font.pixelSize: Theme.fontSizeSmall
-                }
 
                 StyledText {
                     anchors.verticalCenter: parent.verticalCenter
