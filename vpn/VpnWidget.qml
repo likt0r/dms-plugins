@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
@@ -712,7 +713,7 @@ PluginComponent {
     }
 
     // Bar-Icon nach Zustand (Model.barIcon); pulsiert, solange geschaltet wird.
-    component BarIcon: DankIcon {
+    component BarIcon: DIcon {
         id: barIconItem
         name: root.barIcon.name
         filled: root.barIcon.filled
@@ -799,7 +800,7 @@ PluginComponent {
                 active: entryRow.active
             }
 
-            DankIcon {
+            DIcon {
                 anchors.centerIn: parent
                 visible: entryRow.flag === "" && entryRow.iconName !== ""
                 name: entryRow.iconName
@@ -875,7 +876,7 @@ PluginComponent {
                 Row {
                     spacing: Theme.spacingXS
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "settings"
                         tooltipText: "Einstellungen"
                         onClicked: {
@@ -892,7 +893,7 @@ PluginComponent {
                 spacing: Theme.spacingM
                 topPadding: Theme.spacingS
 
-                DankTabBar {
+                DTabBar {
                     id: tabs
                     visible: root.protonUsable
                     width: parent.width
@@ -905,7 +906,7 @@ PluginComponent {
                 }
 
                 // --- Reiter Übersicht -------------------------------------
-                DankFlickable {
+                DFlickable {
                     visible: popout.tab === 0 || !root.protonUsable
                     width: parent.width
                     height: Math.min(overview.implicitHeight, root.bodyHeight)
@@ -947,7 +948,7 @@ PluginComponent {
                                             pixelSize: Theme.fontSizeLarge
                                         }
 
-                                        DankIcon {
+                                        DIcon {
                                             anchors.centerIn: parent
                                             visible: (root.primary?.flag || "") === ""
                                             name: root.barIcon.name
@@ -983,7 +984,7 @@ PluginComponent {
                                     }
                                 }
 
-                                DankButton {
+                                DButton {
                                     visible: root.primary !== null || root.protonUsable
                                     width: parent.width
                                     enabled: !root.protonBusy
@@ -1029,7 +1030,7 @@ PluginComponent {
                                             width: trafficColumn.width / 2
                                             spacing: Theme.spacingS
 
-                                            DankIcon {
+                                            DIcon {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 name: modelData.icon
                                                 size: Theme.iconSizeSmall + 2
@@ -1137,7 +1138,7 @@ PluginComponent {
                                 : Model.targetLabel(root.protonDefault, root.countries).title
                             active: root.protonState === "on"
                             trailing: Component {
-                                DankToggle {
+                                DToggle {
                                     checked: root.protonState === "on" || root.protonState === "error" || (root.protonBusy && root.protonAction === "connect")
                                     enabled: root.protonState !== "busy"
                                     opacity: enabled ? 1 : 0.5
@@ -1158,7 +1159,7 @@ PluginComponent {
                                     : modelData.type + (modelData.toggleCommand ? " · Skript" : "")
                                 active: modelData.state === "on"
                                 trailing: Component {
-                                    DankToggle {
+                                    DToggle {
                                         checked: nmRow.modelData.state === "on"
                                         enabled: nmRow.modelData.state !== "busy" && !scriptProc.running
                                         opacity: enabled ? 1 : 0.5
@@ -1199,13 +1200,13 @@ PluginComponent {
                                     Row {
                                         spacing: 0
 
-                                        DankActionButton {
+                                        DActionButton {
                                             iconName: "play_arrow"
                                             tooltipText: "Verbinden"
                                             enabled: !root.protonBusy
                                             onClicked: root.protonConnect(quickRow.modelData.target)
                                         }
-                                        DankActionButton {
+                                        DActionButton {
                                             iconName: "star"
                                             iconColor: quickRow.modelData.favorite ? Theme.primary : Theme.surfaceVariantText
                                             tooltipText: quickRow.modelData.favorite ? "Favorit entfernen" : "Als Favorit merken"
@@ -1224,7 +1225,7 @@ PluginComponent {
                     width: parent.width
                     spacing: Theme.spacingS
 
-                    DankTextField {
+                    DTextField {
                         width: parent.width
                         leftIconName: "search"
                         placeholderText: "Land, Stadt oder Code suchen"
@@ -1233,7 +1234,7 @@ PluginComponent {
                         onTextChanged: if (text === "") popout.query = ""
                     }
 
-                    DankFilterChips {
+                    DFilterChips {
                         width: parent.width
                         showCounts: false
                         showCheck: false
@@ -1285,13 +1286,13 @@ PluginComponent {
                                     Row {
                                         spacing: 0
 
-                                        DankActionButton {
+                                        DActionButton {
                                             iconName: "star"
                                             iconColor: Model.isFavorite(root.favorites, countryItem.target) ? Theme.primary : Theme.surfaceVariantText
                                             tooltipText: "Favorit"
                                             onClicked: root.toggleFavorite(countryItem.target)
                                         }
-                                        DankActionButton {
+                                        DActionButton {
                                             visible: countryItem.hasCities
                                             iconName: countryItem.isOpen ? "expand_less" : "expand_more"
                                             tooltipText: "Städte"

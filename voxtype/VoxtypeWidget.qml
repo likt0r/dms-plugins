@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 
 // Diktat-Status in der Bar und als OSD unten am Bildschirm. Ersatz fuer
@@ -58,7 +59,7 @@ PluginComponent {
     // ---- Wellenform --------------------------------------------------------
     // 30 Saeulen im 100-ms-Takt = 3,0 s Fenster, also voxtypes eigenes
     // waveform_window_secs. Der Zustand liegt bewusst HIER und nicht im
-    // OSD-Inhalt: DankOSD setzt seinen contentLoader auf `active: root.visible`
+    // OSD-Inhalt: DOSD setzt seinen contentLoader auf `active: root.visible`
     // und zerstoert den Inhalt beim Verbergen -- ein Ringpuffer darin waere
     // nach jedem Ausblenden leer.
     readonly property int balken: 30
@@ -310,7 +311,7 @@ PluginComponent {
     Timer {
         id: nachlauf
         interval: 500
-        // anzeigePhase wird hier absichtlich NICHT zurueckgesetzt: DankOSD
+        // anzeigePhase wird hier absichtlich NICHT zurueckgesetzt: DOSD
         // blendet ueber ~200 ms aus, und waehrend dieser Zeit wuerde sonst
         // der Leerlauf-Inhalt (Aufnahme-Icon, flache Linie) aufblitzen. Den
         // naechsten Zustand setzt ohnehin onPhaseChanged beim naechsten
@@ -487,13 +488,13 @@ PluginComponent {
 
     // ---- OSD ---------------------------------------------------------------
     // Wie in DMSShell.qml ein OSD pro Bildschirm ueber Variants. Ein einzelnes
-    // DankOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
+    // DOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
     // in Plugin-Widgets null, und ohne Screen bleibt das Fenster ohne
     // Geometrie unsichtbar.
     Variants {
         model: SettingsData.getFilteredScreens("osd")
 
-        delegate: DankOSD {
+        delegate: DOSD {
             id: osd
 
             // Zwei Breiten, eine pro Phase: die Wellenform braucht Platz, die
@@ -580,7 +581,7 @@ PluginComponent {
                 readonly property real feldX: abstand + Theme.iconSize + abstand * 1.5
                 readonly property real feldBreite: width - feldX - abstand
 
-                DankIcon {
+                DIcon {
                     x: inhalt.abstand
                     anchors.verticalCenter: parent.verticalCenter
                     name: root.osdIcon
@@ -655,7 +656,7 @@ PluginComponent {
                         NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
                     }
 
-                    DankSpinner {
+                    DSpinner {
                         anchors.verticalCenter: parent.verticalCenter
                         size: Theme.iconSize
                         color: Theme.primary
@@ -679,7 +680,7 @@ PluginComponent {
             implicitWidth: pillIcon.width
             implicitHeight: pillIcon.height
 
-            DankIcon {
+            DIcon {
                 id: pillIcon
                 anchors.centerIn: parent
                 name: root.stateIcon
@@ -705,7 +706,7 @@ PluginComponent {
             implicitWidth: pillIconV.width
             implicitHeight: pillIconV.height
 
-            DankIcon {
+            DIcon {
                 id: pillIconV
                 anchors.centerIn: parent
                 name: root.stateIcon

@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 
 // Eine Pille in der Bar-Mitte mit drei Umschaltern -- Ersatz fuer Omarchys
@@ -315,7 +316,7 @@ PluginComponent {
     property Item meldungenIcon: null
 
     // Das Benachrichtigungszentrum unter der Glocke aufgehen lassen. DMS'
-    // eigener Knopf geht ueber DankBarContent.openWidgetPopout, das Plugins
+    // eigener Knopf geht ueber DBarContent.openWidgetPopout, das Plugins
     // nicht erreichen; der Weg hier ist derselbe wie popoutAnkern() in
     // vpn/VpnWidget.qml: Position aus getPopupTriggerPosition, dann
     // setTriggerPosition + toggle am Popout. Das Popout liegt in einem
@@ -753,13 +754,13 @@ PluginComponent {
 
     // --- HUD der Bildschirmaufnahme ------------------------------------------
     // Wie in DMSShell.qml (und bildschirme): ein OSD pro Bildschirm ueber
-    // Variants. Ein einzelnes DankOSD mit modelData: root.parentScreen geht
+    // Variants. Ein einzelnes DOSD mit modelData: root.parentScreen geht
     // nicht -- parentScreen ist in Plugin-Widgets null, und ohne Screen bleibt
     // das Fenster ohne Geometrie unsichtbar.
     Variants {
         model: SettingsData.getFilteredScreens("osd")
 
-        delegate: DankOSD {
+        delegate: DOSD {
             id: osd
 
             readonly property real kachelBreite: 88
@@ -776,14 +777,14 @@ PluginComponent {
                            screenWidth - Theme.spacingM * 2)
             osdHeight: (osd.auswahl ? kopfHoehe + kachelHoehe : 40) + Theme.spacingS * 2
             // Per Klick geoeffnet: lange stehen lassen, Hover haelt es offen
-            // (DankOSD.updateHoverState). Per Taste uebernimmt nach 1,2 s
+            // (DOSD.updateHoverState). Per Taste uebernimmt nach 1,2 s
             // ohnehin der Timer, die 2 s sind nur die Notbremse.
             autoHideInterval: root.hudManuell ? 8000 : 2000
             enableMouseInteraction: osd.auswahl && root.hudManuell
 
             // Tastaturfokus nur, solange gewaehlt wird, und nur auf dem
             // Schirm mit Fokus -- sonst stritten sich zwei exklusive Fenster
-            // darum. Danach geht der Fokus ans Fenster zurueck. DankOSD selbst
+            // darum. Danach geht der Fokus ans Fenster zurueck. DOSD selbst
             // setzt None; KeyboardFocus.keyboardFocus ist DMS' eigene Regel
             // (u. a. kein Fokus waehrend eines Screenshots).
             readonly property bool tastenFokus: osd.auswahl
@@ -903,7 +904,7 @@ PluginComponent {
                                     anchors.centerIn: parent
                                     spacing: 2
 
-                                    DankIcon {
+                                    DIcon {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         name: kachel.modelData.icon
                                         size: Theme.iconSize
@@ -924,7 +925,7 @@ PluginComponent {
                                     enabled: root.hudManuell
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    // Hover meldet DankOSD, damit es nicht
+                                    // Hover meldet DOSD, damit es nicht
                                     // unter dem Zeiger ausblendet.
                                     onContainsMouseChanged: osd.setChildHovered(containsMouse)
                                     onClicked: {
@@ -950,7 +951,7 @@ PluginComponent {
                         NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
                     }
 
-                    DankIcon {
+                    DIcon {
                         x: inhalt.abstand
                         anchors.verticalCenter: parent.verticalCenter
                         name: "stop_circle"
@@ -1066,7 +1067,7 @@ PluginComponent {
             color: root.farbeFuer(platz.kennung, platz.aktiv)
         }
 
-        DankIcon {
+        DIcon {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             name: root.iconFuer(platz.kennung)
@@ -1107,7 +1108,7 @@ PluginComponent {
         height: root.anfasserZeigen ? root.barIconPx : 0
         visible: root.anfasserZeigen
 
-        DankIcon {
+        DIcon {
             anchors.centerIn: parent
             name: "more_horiz"
             size: root.barIconPx
@@ -1116,7 +1117,7 @@ PluginComponent {
         }
     }
 
-    // Hintergrund des Ueberhangs, Farbe der Bar (DankBarBody: surfaceContainer).
+    // Hintergrund des Ueberhangs, Farbe der Bar (DBarBody: surfaceContainer).
     component UeberhangGrund: Rectangle {
         color: Theme.surfaceContainer
         radius: Theme.cornerRadius

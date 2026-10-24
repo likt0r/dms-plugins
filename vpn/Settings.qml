@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
@@ -122,7 +123,7 @@ PluginSettings {
         }
     }
 
-    DankToggle {
+    DToggle {
         width: parent.width
         visible: root.killSwitch !== ""
         text: "Kill Switch"
@@ -226,7 +227,7 @@ PluginSettings {
                         width: parent.width
                         height: Math.max(Theme.iconSize, headerText.implicitHeight)
 
-                        DankIcon {
+                        DIcon {
                             id: headerIcon
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
@@ -260,8 +261,8 @@ PluginSettings {
                         }
                     }
 
-                    // Kein Wrapper: DankToggle setzt height, nicht implicitHeight.
-                    DankToggle {
+                    // Kein Wrapper: DToggle setzt height, nicht implicitHeight.
+                    DToggle {
                         width: parent.width
                         text: "Im Popout zeigen"
                         checked: !card.modelData.hidden
@@ -278,7 +279,7 @@ PluginSettings {
                             color: Theme.surfaceVariantText
                         }
 
-                        DankTextField {
+                        DTextField {
                             width: parent.width
                             text: root.connections[card.modelData.name]?.label || ""
                             placeholderText: card.modelData.name
@@ -296,7 +297,7 @@ PluginSettings {
                             color: Theme.surfaceVariantText
                         }
 
-                        DankTextField {
+                        DTextField {
                             width: parent.width
                             text: root.connections[card.modelData.name]?.toggleCommand || ""
                             placeholderText: "leer: DMS schaltet selbst"

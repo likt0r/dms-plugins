@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
@@ -367,7 +368,7 @@ PluginComponent {
         Row {
             spacing: Theme.spacingXS
 
-            DankIcon {
+            DIcon {
                 anchors.verticalCenter: parent.verticalCenter
                 name: "timer"
                 size: root.barIconPx
@@ -390,7 +391,7 @@ PluginComponent {
             implicitWidth: pillIconV.width
             implicitHeight: pillIconV.height
 
-            DankIcon {
+            DIcon {
                 id: pillIconV
                 anchors.centerIn: parent
                 name: "timer"
@@ -427,7 +428,7 @@ PluginComponent {
             }
 
             headerActions: Component {
-                DankActionButton {
+                DActionButton {
                     visible: root.reminders.length > 0
                     iconName: "delete_sweep"
                     tooltipText: "Alle löschen"
@@ -453,7 +454,7 @@ PluginComponent {
                         radius: Theme.cornerRadius
                         color: isNext ? Theme.withAlpha(Theme.primary, 0.12) : Theme.surfaceContainerHigh
 
-                        DankIcon {
+                        DIcon {
                             id: itemIcon
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.spacingM
@@ -499,7 +500,7 @@ PluginComponent {
                             color: item.isNext ? Theme.primary : Theme.surfaceText
                         }
 
-                        DankActionButton {
+                        DActionButton {
                             id: cancelButton
                             anchors.right: parent.right
                             anchors.rightMargin: Theme.spacingS
@@ -511,7 +512,7 @@ PluginComponent {
                     }
                 }
 
-                DankButton {
+                DButton {
                     width: parent.width
                     text: "Timer hinzufügen"
                     iconName: "add_alarm"
@@ -532,14 +533,14 @@ PluginComponent {
     }
 
     // --- HUD: Timer stellen --------------------------------------------------------
-    // Gebaut wie das Aufnahme-HUD in schalter/SchalterWidget.qml: ein DankOSD je
+    // Gebaut wie das Aufnahme-HUD in schalter/SchalterWidget.qml: ein DOSD je
     // Bildschirm über Variants (in Plugins ist parentScreen null, ein einzelnes
     // OSD bliebe ohne Geometrie). Tastaturfokus nur, solange es offen ist, und
     // nur auf dem Schirm mit Fokus.
     Variants {
         model: SettingsData.getFilteredScreens("osd")
 
-        delegate: DankOSD {
+        delegate: DOSD {
             id: osd
 
             readonly property bool offen: root.hudSchritt !== 0
@@ -581,7 +582,7 @@ PluginComponent {
                 anchors.margins: Theme.spacingM
 
                 // Fängt die Steuertasten ab, bevor das Textfeld sie sieht
-                // (DankTextField reicht über keyForwardTargets/Keys.forwardTo
+                // (DTextField reicht über keyForwardTargets/Keys.forwardTo
                 // zuerst hierher weiter).
                 Item {
                     id: tasten
@@ -657,7 +658,7 @@ PluginComponent {
                     }
 
                     // Schritt 1: Zeit.
-                    DankTextField {
+                    DTextField {
                         id: zeitFeld
                         visible: root.hudSchritt !== 2
                         width: parent.width
@@ -679,7 +680,7 @@ PluginComponent {
                     }
 
                     // Schritt 2: Notiz.
-                    DankTextField {
+                    DTextField {
                         id: notizFeld
                         visible: root.hudSchritt === 2
                         width: parent.width

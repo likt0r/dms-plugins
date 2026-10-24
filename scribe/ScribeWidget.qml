@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import qs.DCommon.Common as DC
 import "Model.js" as Model
@@ -1093,7 +1094,7 @@ PluginComponent {
                         elide: Text.ElideRight
                     }
 
-                    DankButton {
+                    DButton {
                         id: gearButton
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Einstellungen"
@@ -1421,7 +1422,7 @@ PluginComponent {
                             elide: Text.ElideRight
                         }
 
-                        DankButton {
+                        DButton {
                             id: closeButton
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
@@ -1493,7 +1494,7 @@ PluginComponent {
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 8
 
-                                DankIcon {
+                                DIcon {
                                     anchors.verticalCenter: parent.verticalCenter
                                     name: navRow.modelData.icon
                                     color: navRow.index === root.tabIndex ? Theme.primary : Theme.surfaceText
@@ -1564,7 +1565,7 @@ PluginComponent {
                             anchors.right: parent.right
                             height: clearButton.height
 
-                            DankButton {
+                            DButton {
                                 id: clearButton
                                 visible: root.history.length > 0
                                 text: "History leeren"
@@ -1574,7 +1575,7 @@ PluginComponent {
                             }
                         }
 
-                        DankFlickable {
+                        DFlickable {
                             id: historyFlick
                             anchors.top: parent.top
                             anchors.left: parent.left
@@ -1632,14 +1633,14 @@ PluginComponent {
                                         width: parent.width
                                         spacing: 6
 
-                                        DankButton {
+                                        DButton {
                                             text: "Neu"
                                             iconName: "add"
                                             buttonHeight: 32
                                             onClicked: root.newPrompt()
                                         }
 
-                                        DankButton {
+                                        DButton {
                                             text: "Standard"
                                             iconName: "star"
                                             buttonHeight: 32
@@ -1650,7 +1651,7 @@ PluginComponent {
                                         }
                                     }
 
-                                    DankButton {
+                                    DButton {
                                         text: "Loeschen"
                                         iconName: "delete"
                                         buttonHeight: 32
@@ -1661,7 +1662,7 @@ PluginComponent {
                                 }
                             }
 
-                            DankFlickable {
+                            DFlickable {
                                 id: promptFlick
                                 anchors.top: parent.top
                                 anchors.left: parent.left
@@ -1783,7 +1784,7 @@ PluginComponent {
 
                                         SectionLabel { text: "TITEL" }
 
-                                        DankTextField {
+                                        DTextField {
                                             id: titleField
                                             width: parent.width
                                             placeholderText: "Was auf der Kachel steht"
@@ -1825,14 +1826,14 @@ PluginComponent {
                                                 }
                                             }
 
-                                            DankButton {
+                                            DButton {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: "Waehlen…"
                                                 buttonHeight: 30
                                                 onClicked: root.openIconPicker()
                                             }
 
-                                            DankButton {
+                                            DButton {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: "Leeren"
                                                 buttonHeight: 30
@@ -1879,7 +1880,7 @@ PluginComponent {
                                     width: parent.width
                                     spacing: 8
 
-                                    DankButton {
+                                    DButton {
                                         text: "Speichern"
                                         iconName: "save"
                                         buttonHeight: 32
@@ -1888,7 +1889,7 @@ PluginComponent {
                                         onClicked: root.savePrompts()
                                     }
 
-                                    DankButton {
+                                    DButton {
                                         text: "Verwerfen"
                                         iconName: "undo"
                                         buttonHeight: 32
@@ -1897,7 +1898,7 @@ PluginComponent {
                                         onClicked: root.selectPrompt(root.draftName)
                                     }
 
-                                    DankButton {
+                                    DButton {
                                         text: "profiles.json oeffnen"
                                         buttonHeight: 32
                                         onClicked: editProc.running = true
@@ -1955,7 +1956,7 @@ PluginComponent {
 
                     // ----------------------------------------------- settings
 
-                    DankFlickable {
+                    DFlickable {
                         id: settingsFlick
                         anchors.fill: parent
                         visible: root.tabIndex === 2
@@ -1973,7 +1974,7 @@ PluginComponent {
                                 width: Math.floor((settingsRow.width - settingsRow.spacing) / 2)
                                 spacing: 10
 
-                                DankDropdown {
+                                DDropdown {
                                     width: parent.width
                                     text: "Backend"
                                     currentValue: root.backend
@@ -1981,7 +1982,7 @@ PluginComponent {
                                     onValueChanged: value => root.updateSetting("backend", value)
                                 }
 
-                                DankDropdown {
+                                DDropdown {
                                     width: parent.width
                                     text: "Standard-Prompt"
                                     currentValue: Model.profileTitle(root.profiles, root.profile)
@@ -1995,7 +1996,7 @@ PluginComponent {
 
                                     SectionLabel { text: "MODELL" }
 
-                                    DankTextField {
+                                    DTextField {
                                         width: parent.width
                                         text: root.model
                                         onEditingFinished: if (text !== root.model) root.updateSetting("model", text)
@@ -2017,7 +2018,7 @@ PluginComponent {
 
                                     SectionLabel { text: "EFFORT" }
 
-                                    DankTextField {
+                                    DTextField {
                                         width: parent.width
                                         text: root.effort
                                         onEditingFinished: if (text !== root.effort) root.updateSetting("effort", text)
@@ -2041,7 +2042,7 @@ PluginComponent {
 
                                     SectionLabel { text: "ENDPOINT" }
 
-                                    DankTextField {
+                                    DTextField {
                                         width: parent.width
                                         text: root.endpoint
                                         onEditingFinished: if (text !== root.endpoint) root.updateSetting("endpoint", text)
@@ -2062,7 +2063,7 @@ PluginComponent {
                                 width: Math.floor((settingsRow.width - settingsRow.spacing) / 2)
                                 spacing: 10
 
-                                DankToggle {
+                                DToggle {
                                     width: parent.width
                                     text: "Auf die Zwischenablage ausweichen"
                                     description: "Ist nichts markiert, wird korrigiert, was in der Zwischenablage liegt."
@@ -2070,14 +2071,14 @@ PluginComponent {
                                     onToggled: checked => root.updateSetting("clipboardFallback", checked)
                                 }
 
-                                DankToggle {
+                                DToggle {
                                     width: parent.width
                                     text: "Benachrichtigen, wenn fertig"
                                     checked: root.notifyOnDone
                                     onToggled: checked => root.updateSetting("notify", checked)
                                 }
 
-                                DankToggle {
+                                DToggle {
                                     width: parent.width
                                     text: "History fuehren"
                                     description: "Korrekturen landen in " + root.stateDir + "."
@@ -2085,7 +2086,7 @@ PluginComponent {
                                     onToggled: checked => root.updateSetting("historyEnabled", checked)
                                 }
 
-                                DankToggle {
+                                DToggle {
                                     width: parent.width
                                     enabled: root.historyEnabled
                                     opacity: root.historyEnabled ? 1.0 : 0.5
@@ -2097,7 +2098,7 @@ PluginComponent {
 
                                 HairRule { width: parent.width }
 
-                                DankButton {
+                                DButton {
                                     text: "Setup pruefen"
                                     iconName: "troubleshoot"
                                     buttonHeight: 32
@@ -2192,7 +2193,7 @@ PluginComponent {
                             }
                         }
 
-                        DankButton {
+                        DButton {
                             id: iconClose
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
@@ -2203,7 +2204,7 @@ PluginComponent {
                         }
                     }
 
-                    // Ein rohes Eingabefeld statt DankTextField: das Feld
+                    // Ein rohes Eingabefeld statt DTextField: das Feld
                     // behaelt die Tastatur, damit Tippen filtert, und reicht
                     // die Pfeile ans Grid weiter, statt den Cursor zu bewegen.
                     Rectangle {
@@ -2348,7 +2349,7 @@ PluginComponent {
                     elide: Text.ElideRight
                 }
 
-                DankActionButton {
+                DActionButton {
                     visible: row.textual
                     iconName: "content_copy"
                     tooltipText: "In die Zwischenablage"

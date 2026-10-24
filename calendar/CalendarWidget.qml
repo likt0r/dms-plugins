@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
@@ -628,7 +629,7 @@ PluginComponent {
                         maximumLineCount: 1
                     }
 
-                    DankActionButton {
+                    DActionButton {
                         id: camBtn
                         anchors.verticalCenter: parent.verticalCenter
                         visible: Model.isOpenableUrl(row.meeting)
@@ -648,7 +649,7 @@ PluginComponent {
                     spacing: Theme.spacingXXS
                     visible: row.place !== "" || row.calText !== ""
 
-                    DankIcon {
+                    DIcon {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: row.place !== ""
                         name: "location_on"
@@ -673,7 +674,7 @@ PluginComponent {
                         color: Theme.surfaceVariantText
                         opacity: 0.45
                     }
-                    DankIcon {
+                    DIcon {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: row.calText !== ""
                         name: "calendar_month"
@@ -793,7 +794,7 @@ PluginComponent {
                             anchors.horizontalCenter: parent.horizontalCenter
                             spacing: Theme.spacingS
 
-                            DankIcon {
+                            DIcon {
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: "calendar_month"
                                 size: 26
@@ -960,7 +961,7 @@ PluginComponent {
                             width: calCol.inner
                             height: 34
 
-                            DankActionButton {
+                            DActionButton {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 iconName: "chevron_left"
@@ -988,7 +989,7 @@ PluginComponent {
                                 onClicked: root.goToToday()
                             }
 
-                            DankActionButton {
+                            DActionButton {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 iconName: "chevron_right"
@@ -1039,7 +1040,7 @@ PluginComponent {
                                 }
                             }
 
-                            DankActionButton {
+                            DActionButton {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 iconName: root.hidePast ? "visibility_off" : "visibility"
@@ -1053,7 +1054,7 @@ PluginComponent {
 
                     // ---- Die Agenda selbst. Feste Hoehe, damit das Popout
                     //      nicht bei jedem Tagwechsel eine andere Groesse hat.
-                    DankFlickable {
+                    DFlickable {
                         width: calCol.inner
                         // So hoch wie noetig, hoechstens so hoch wie der
                         // Bildschirm zulaesst -- erst dann wird gescrollt.
@@ -1134,14 +1135,14 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: Theme.spacingXXS
 
-                            DankActionButton {
+                            DActionButton {
                                 iconName: "open_in_new"
                                 buttonSize: 26
                                 iconSize: 15
                                 tooltipText: "Im Kalender öffnen"
                                 onClicked: root.openInCalendarApp()
                             }
-                            DankActionButton {
+                            DActionButton {
                                 iconName: "close"
                                 buttonSize: 26
                                 iconSize: 15
@@ -1186,7 +1187,7 @@ PluginComponent {
                         spacing: Theme.spacingXS
                         visible: detailCol.ev && String(detailCol.ev.recurringId || "") !== ""
 
-                        DankIcon {
+                        DIcon {
                             anchors.verticalCenter: parent.verticalCenter
                             name: "repeat"
                             size: 13
@@ -1215,7 +1216,7 @@ PluginComponent {
                             anchors.centerIn: parent
                             spacing: Theme.spacingS
 
-                            DankIcon {
+                            DIcon {
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: "videocam"
                                 size: 16
@@ -1239,7 +1240,7 @@ PluginComponent {
 
                     // ---- Alles Weitere scrollt, damit lange Gaestelisten
                     //      und Einladungstexte die Spalte nicht sprengen.
-                    DankFlickable {
+                    DFlickable {
                         width: detailCol.inner
                         height: Math.max(0, calCol.height - detailCol.topPadding
                                 - detailCol.bottomPadding - rest.y)
@@ -1334,7 +1335,7 @@ PluginComponent {
                                     required property var modelData
                                     spacing: Theme.spacingXS
 
-                                    DankIcon {
+                                    DIcon {
                                         anchors.verticalCenter: parent.verticalCenter
                                         name: Model.attendeeIcon(modelData.status)
                                         size: 13

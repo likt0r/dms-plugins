@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 
 // Ein Flugzeug in der Bar, solange der Flugmodus laeuft -- sonst gar nichts --
@@ -129,7 +130,7 @@ PluginComponent {
     pillClickAction: () => root.umschalten()
 
     // Wie in DMSShell.qml: ein OSD pro Bildschirm ueber Variants. Ein einzelnes
-    // DankOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
+    // DOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
     // in Plugin-Widgets null, und ohne Screen bleibt das Fenster ohne
     // Geometrie (500x500, Position undefiniert) unsichtbar.
     // Bei mehreren Bars auf mehreren Schirmen gaebe es die OSDs doppelt; hier
@@ -137,7 +138,7 @@ PluginComponent {
     Variants {
         model: SettingsData.getFilteredScreens("osd")
 
-        delegate: DankOSD {
+        delegate: DOSD {
             id: osd
 
             osdWidth: Math.min(Math.max(120, Theme.iconSize + beschriftung.width + Theme.spacingS * 4),
@@ -170,7 +171,7 @@ PluginComponent {
                 width: parent.width - Theme.spacingS * 2
                 height: 40
 
-                DankIcon {
+                DIcon {
                     x: parent.abstand
                     anchors.verticalCenter: parent.verticalCenter
                     name: root.aktiv ? "airplanemode_active" : "airplanemode_inactive"
@@ -198,7 +199,7 @@ PluginComponent {
             implicitHeight: root.aktiv ? flieger.height : 0
             visible: root.aktiv
 
-            DankIcon {
+            DIcon {
                 id: flieger
                 anchors.centerIn: parent
                 name: "airplanemode_active"
@@ -214,7 +215,7 @@ PluginComponent {
             implicitHeight: root.aktiv ? fliegerV.height : 0
             visible: root.aktiv
 
-            DankIcon {
+            DIcon {
                 id: fliegerV
                 anchors.centerIn: parent
                 name: "airplanemode_active"

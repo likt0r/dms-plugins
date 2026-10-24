@@ -5,7 +5,7 @@
 // line 2 the vegetarian one -- and it is the only signal the page offers, so
 // the icons key on position, with a fish override for the obvious cases.
 //
-// Icons are Material Symbols names (rendered via DankIcon); the Omarchy
+// Icons are Material Symbols names (rendered via DIcon); the Omarchy
 // original used Nerd Font glyphs here. This is the only change in this file.
 
 var ICON_MAIN = "restaurant"

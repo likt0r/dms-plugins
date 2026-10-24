@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
@@ -238,7 +239,7 @@ PluginComponent {
         Row {
             spacing: Theme.spacingXS
 
-            DankIcon {
+            DIcon {
                 anchors.verticalCenter: parent.verticalCenter
                 name: "restaurant"
                 color: Theme.widgetTextColor
@@ -260,7 +261,7 @@ PluginComponent {
             implicitWidth: pillIconV.width
             implicitHeight: pillIconV.height
 
-            DankIcon {
+            DIcon {
                 id: pillIconV
                 anchors.centerIn: parent
                 name: "restaurant"
@@ -293,21 +294,21 @@ PluginComponent {
                 Row {
                     spacing: Theme.spacingXS
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "refresh"
                         tooltipText: "Neu laden"
                         enabled: !root.loading
                         onClicked: root.refresh(true)
                     }
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "picture_as_pdf"
                         tooltipText: "Speisekarte als PDF"
                         enabled: root.menu.pdfUrl !== ""
                         onClicked: root.openPdf()
                     }
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "open_in_new"
                         tooltipText: "warthemahl.de oeffnen"
                         onClicked: root.openSite()
@@ -319,9 +320,9 @@ PluginComponent {
                 width: parent.width
                 spacing: Theme.spacingS
 
-                // DankToggle bemisst sich mit text selbst ueber die volle
+                // DToggle bemisst sich mit text selbst ueber die volle
                 // Breite (Label links, Schalter rechts) -- kein Wrapper noetig.
-                DankToggle {
+                DToggle {
                     width: parent.width
                     text: "Nur vegetarisch"
                     checked: root.vegetarianOnly
@@ -338,7 +339,7 @@ PluginComponent {
                     wrapMode: Text.WordWrap
                 }
 
-                DankFlickable {
+                DFlickable {
                     width: parent.width
                     height: Math.min(daysColumn.implicitHeight, 460)
                     contentHeight: daysColumn.implicitHeight
@@ -429,7 +430,7 @@ PluginComponent {
                                             width: cardBody.width
                                             height: Math.max(dishGlyph.height, dishText.contentHeight)
 
-                                            DankIcon {
+                                            DIcon {
                                                 id: dishGlyph
                                                 anchors.left: parent.left
                                                 anchors.top: parent.top

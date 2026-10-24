@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 
 // Bildschirmmodus umschalten wie GNOMEs Super+P: ein Popout mit allen Modi,
@@ -456,13 +457,13 @@ PluginComponent {
     }
 
     // Wie in DMSShell.qml: ein OSD pro Bildschirm ueber Variants. Ein einzelnes
-    // DankOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
+    // DOSD mit modelData: root.parentScreen geht nicht -- parentScreen ist
     // in Plugin-Widgets null, und ohne Screen bleibt das Fenster ohne
     // Geometrie unsichtbar.
     Variants {
         model: SettingsData.getFilteredScreens("osd")
 
-        delegate: DankOSD {
+        delegate: DOSD {
             id: osd
 
             readonly property real eintragBreite: 88
@@ -589,7 +590,7 @@ PluginComponent {
                                 anchors.centerIn: parent
                                 spacing: 2
 
-                                DankIcon {
+                                DIcon {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     name: eintrag.modelData.icon
                                     size: Theme.iconSize
@@ -616,7 +617,7 @@ PluginComponent {
                         NumberAnimation { duration: Anims.durShort; easing.type: Easing.OutCubic }
                     }
 
-                    DankIcon {
+                    DIcon {
                         x: inhalt.abstand
                         anchors.verticalCenter: parent.verticalCenter
                         name: root.hinweis !== "" ? "desktop_access_disabled" : root.aktiverModus.icon
@@ -640,7 +641,7 @@ PluginComponent {
     }
 
     horizontalBarPill: Component {
-        DankIcon {
+        DIcon {
             name: root.aktiverModus.icon
             color: Theme.widgetTextColor
             size: root.barIconPx
@@ -648,7 +649,7 @@ PluginComponent {
     }
 
     verticalBarPill: Component {
-        DankIcon {
+        DIcon {
             name: root.aktiverModus.icon
             color: Theme.widgetTextColor
             size: root.barIconPx
@@ -679,7 +680,7 @@ PluginComponent {
             }
 
             headerActions: Component {
-                DankActionButton {
+                DActionButton {
                     iconName: "tune"
                     tooltipText: "Anzeigeeinstellungen"
                     onClicked: root.einstellungenOeffnen()
@@ -725,7 +726,7 @@ PluginComponent {
                             anchors.rightMargin: Theme.spacingM
                             spacing: Theme.spacingM
 
-                            DankIcon {
+                            DIcon {
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: zeile.modelData.icon
                                 size: Theme.iconSize
@@ -761,7 +762,7 @@ PluginComponent {
                                 }
                             }
 
-                            DankIcon {
+                            DIcon {
                                 id: haken
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: "check"
@@ -821,7 +822,7 @@ PluginComponent {
                             anchors.rightMargin: Theme.spacingM
                             spacing: Theme.spacingM
 
-                            DankIcon {
+                            DIcon {
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: "bookmark"
                                 size: Theme.iconSizeSmall
