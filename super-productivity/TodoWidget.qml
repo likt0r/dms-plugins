@@ -5,11 +5,12 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import "Model.js" as Model
 
 // Todos aus Super Productivity: Pille in der Bar, Klick (oder Super+M) klappt
-// von der Bildschirmkante ein Panel herein (DankSlideout, wie das Notepad von
+// von der Bildschirmkante ein Panel herein (DSlideout, wie das Notepad von
 // DMS). Dort werden Tasks angelegt, abgehakt, umbenannt, geloescht, mit
 // Notizen versehen und die Zeiterfassung gestartet.
 //
@@ -404,7 +405,7 @@ PluginComponent {
             spacing: Theme.spacingXS
             opacity: root.reachable ? 1 : 0.5
 
-            DankIcon {
+            DIcon {
                 anchors.verticalCenter: parent.verticalCenter
                 name: root.currentTask ? "timer" : "checklist"
                 color: root.currentTask ? Theme.primary : Theme.widgetTextColor
@@ -435,7 +436,7 @@ PluginComponent {
             spacing: 2
             opacity: root.reachable ? 1 : 0.5
 
-            DankIcon {
+            DIcon {
                 anchors.horizontalCenter: parent.horizontalCenter
                 name: root.currentTask ? "timer" : "checklist"
                 color: root.currentTask ? Theme.primary : Theme.widgetTextColor
@@ -454,7 +455,7 @@ PluginComponent {
 
     // ------------------------------------------------------------------ Panel
 
-    DankSlideout {
+    DSlideout {
         id: slideout
         modelData: root.slideScreen
         // Ohne title: den Kopf zeichnet das Panel selbst, damit Zaehler und
@@ -462,7 +463,7 @@ PluginComponent {
         title: ""
         slideoutWidth: root.panelWidth
         slideEdge: root.slideEdge
-        // Im Frame-Modus legt DankSlideout sich auf den Overlay-Layer, ueber
+        // Im Frame-Modus legt DSlideout sich auf den Overlay-Layer, ueber
         // alle Popouts (die liegen auf Top). Gewollt ist das Gegenteil:
         // Popouts gehen ueber dem Panel auf. Auf demselben Layer liegt, was
         // zuletzt gezeigt wurde, oben -- also das danach geoeffnete Popout.
@@ -560,20 +561,20 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: Theme.spacingXS
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "refresh"
                         tooltipText: "Neu laden"
                         enabled: !root.refreshing
                         onClicked: root.refresh()
                     }
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "open_in_new"
                         tooltipText: "Super Productivity öffnen"
                         onClicked: root.launchApp()
                     }
 
-                    DankActionButton {
+                    DActionButton {
                         iconName: "close"
                         tooltipText: "Schließen"
                         onClicked: slideout.hide()
@@ -581,7 +582,7 @@ PluginComponent {
                 }
             }
 
-            DankFilterChips {
+            DFilterChips {
                 width: parent.width
                 visible: root.reachable
                 model: root.chips
@@ -598,7 +599,7 @@ PluginComponent {
                 }
             }
 
-            DankTextField {
+            DTextField {
                 id: newTask
                 width: parent.width
                 visible: root.reachable
@@ -650,7 +651,7 @@ PluginComponent {
                 bottomPadding: Theme.spacingL
                 spacing: Theme.spacingM
 
-                DankIcon {
+                DIcon {
                     anchors.horizontalCenter: parent.horizontalCenter
                     name: root.errorCode === "NO_TOKEN" ? "key_off" : "cloud_off"
                     size: 40
@@ -675,7 +676,7 @@ PluginComponent {
                     font.pixelSize: Theme.fontSizeSmall
                 }
 
-                DankButton {
+                DButton {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: launchRetry.running ? "Startet …" : "Super Productivity starten"
                     iconName: "play_arrow"
@@ -792,7 +793,7 @@ PluginComponent {
             id: markerRow
             spacing: 2
 
-            DankIcon {
+            DIcon {
                 anchors.verticalCenter: parent.verticalCenter
                 // "comment" wie SPs Knopf fuer Projekt-Notizen.
                 name: "comment"
@@ -827,7 +828,7 @@ PluginComponent {
             onClicked: root.showDone = !root.showDone
         }
 
-        DankIcon {
+        DIcon {
             id: chevron
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -890,7 +891,7 @@ PluginComponent {
                 onDoubleClicked: root.editingId = taskItem.row.id
             }
 
-            DankIcon {
+            DIcon {
                 id: check
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.spacingXS + (taskItem.row.depth || 0) * 22
@@ -913,7 +914,7 @@ PluginComponent {
             // in der Meta-Spalte stand frueher "ueberfaellig" und tauschte
             // beim Ueberfahren mit den Knoepfen -- das sprang und wirkte
             // uebereinander.
-            DankIcon {
+            DIcon {
                 id: overdueIcon
                 visible: taskItem.row.due === "overdue" && !taskItem.editing
                 anchors.left: check.right
@@ -943,7 +944,7 @@ PluginComponent {
             }
 
             // Marker: der Task hat Notizen. Immer sichtbar, aufgeklappt gefuellt.
-            DankIcon {
+            DIcon {
                 id: noteMarker
                 visible: taskItem.hasNotes && !taskItem.editing
                 anchors.left: titleText.right
@@ -956,7 +957,7 @@ PluginComponent {
                 color: taskItem.row.isDone ? Theme.surfaceVariantText : Theme.primary
             }
 
-            DankTextField {
+            DTextField {
                 id: editField
                 visible: taskItem.editing
                 anchors.left: check.right
@@ -993,7 +994,7 @@ PluginComponent {
                     font.pixelSize: Theme.fontSizeSmall
                 }
 
-                DankActionButton {
+                DActionButton {
                     visible: taskItem.showActions && !taskItem.row.isDone
                     buttonSize: 28
                     iconName: taskItem.row.isCurrent ? "pause" : "play_arrow"
@@ -1002,7 +1003,7 @@ PluginComponent {
                     onClicked: root.toggleTracking(taskItem.row.id)
                 }
 
-                DankActionButton {
+                DActionButton {
                     visible: taskItem.showActions
                     buttonSize: 28
                     iconName: "delete_forever"
@@ -1106,7 +1107,7 @@ PluginComponent {
             }
         }
 
-        DankTextEdit {
+        DTextEdit {
             id: editor
             visible: box.editing
             width: parent.width

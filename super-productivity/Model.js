@@ -124,7 +124,7 @@ function countOpen(tasks, filter, now) {
 }
 
 // Chips oben im Panel: Heute, Alle, dann jedes sichtbare Projekt. Die Zahl
-// steht nur dran, wenn sie nicht null ist (DankFilterChips blendet 0 aus).
+// steht nur dran, wenn sie nicht null ist (DFilterChips blendet 0 aus).
 function filterChips(tasks, projects, now) {
   var chips = [
     { value: FILTER_TODAY, label: "Heute", count: countOpen(tasks, FILTER_TODAY, now) },
