@@ -142,6 +142,15 @@ PluginComponent {
     visibilityCommand: "systemctl --user --quiet is-active voxtype.service"
     visibilityInterval: 10
 
+    Component.onCompleted: {
+        // Eigene Pille aus: das Icon zeigt die Toggle-Leiste (Plugin schalter).
+        // Frueher stand dafuer {"id": ..., "enabled": false} in settings.json;
+        // DMS 2.0.0 instanziiert solche Eintraege gar nicht mehr, womit auch
+        // IpcHandler, Popout und der globalVars-Anker wegfielen. Der Eintrag
+        // ist jetzt wieder regulaer, das Verstecken macht das Plugin selbst.
+        root.setVisibilityOverride(false);
+    }
+
     pillClickAction: () => root.umschalten()
     // Konfiguration im schwebenden Terminal (Fensterregel in niri/config.kdl).
     pillRightClickAction: () => {

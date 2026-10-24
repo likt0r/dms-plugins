@@ -66,21 +66,21 @@ PluginComponent {
     popoutWidth: 400
 
     Component.onCompleted: {
-        root.ankerMelden();
         root.refresh();
+        // Eigene Pille aus: das Icon zeigt die Toggle-Leiste (Plugin schalter).
+        // Frueher stand dafuer {"id": ..., "enabled": false} in settings.json;
+        // DMS 2.0.0 instanziiert solche Eintraege gar nicht mehr, womit auch
+        // IpcHandler, Popout und der globalVars-Anker wegfielen. Der Eintrag
+        // ist jetzt wieder regulaer, das Verstecken macht das Plugin selbst.
+        root.setVisibilityOverride(false);
     }
 
     // --- Anker für die Toggle-Leiste ------------------------------------------
     // Wie vpnHub (vpn/VpnWidget.qml, Abschnitt "Anker"): die eigene Pille ist
     // ausgeblendet, `triggerPopout()` verankerte das Popout aber an ihr. Darum
-    // liegt die Instanz je Schirm in PluginService.globalVars, und schalter
-    // ruft popoutAnkern() mit der Stelle des geklickten Icons.
-    onParentScreenChanged: root.ankerMelden()
-
-    function ankerMelden() {
-        if (root.parentScreen?.name)
-            PluginService.setGlobalVar("reminder", "anker:" + root.parentScreen.name, root);
-    }
+    // ruft schalter popoutAnkern() mit der Stelle des geklickten Icons und
+    // findet uns dafuer ueber BarWidgetService, die Widget-Registry von
+    // DMS 2.0.0.
 
     function popoutFenster() {
         for (var i = 0; i < root.children.length; i++) {

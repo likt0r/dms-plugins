@@ -145,40 +145,29 @@ PluginComponent {
     Component.onCompleted: {
         root.loadQuickTargets();
         protonCheck.running = true;
-        root.ankerMelden();
+        // Eigene Pille aus: das Icon zeigt die Toggle-Leiste (Plugin schalter).
+        // Frueher stand dafuer {"id": ..., "enabled": false} in settings.json;
+        // DMS 2.0.0 instanziiert solche Eintraege gar nicht mehr, womit auch
+        // IpcHandler, Popout und der globalVars-Anker wegfielen. Der Eintrag
+        // ist jetzt wieder regulaer, das Verstecken macht das Plugin selbst.
+        root.setVisibilityOverride(false);
     }
 
     onPluginServiceChanged: root.loadQuickTargets()
 
     // --- Anker fuer fremde Ausloeser -----------------------------------------
     // Die VPN-Taste sitzt in der schalter-Gruppe in der Bar-Mitte; die eigene
-    // Pille ist ausgeblendet (settings.json: enabled false) und steht trotzdem
-    // rechts in der Leiste. `triggerPopout()` verankert das Popout immer an
-    // ihr -- es faehrt dann rechts herunter statt unter dem geklickten Icon.
-    // Darum kann die Gruppe uns direkt ansprechen und die Stelle mitgeben.
+    // Pille ist ausgeblendet und steht trotzdem rechts in der Leiste.
+    // `triggerPopout()` verankert das Popout immer an ihr -- es faehrt dann
+    // rechts herunter statt unter dem geklickten Icon. Darum reicht die Gruppe
+    // die Stelle des Icons durch und ruft popoutAnkern().
     //
-    // Der Weg dorthin ist `PluginService.globalVars`: ein Ablagefach, in dem
-    // Plugins beliebige Werte unter ihrer Id hinterlegen
-    // (Widgets/PluginGlobalVar.qml nutzt dasselbe). Hier liegt die Instanz
-    // selbst darin, getrennt je Schirm -- sonst bediente ein Klick auf dem
-    // zweiten Monitor die Instanz des ersten. Nichts davon landet auf Platte.
+    // Sie findet uns ueber BarWidgetService (DMS 2.0.0): die Registry fuehrt
+    // jedes Bar-Widget je Schirm, inklusive versteckter. Frueher stand hier
+    // ein selbstgebauter Anker in PluginService.globalVars -- den braucht es
+    // nicht mehr, die Registry macht dasselbe ohne Zutun des Plugins.
     //
-    // Warum nicht per IPC: `dms ipc call` startet einen Prozess und erreicht
-    // immer nur die zuerst registrierte Instanz, also einen festen Schirm.
-    // `openPopoutAt` unten gibt es trotzdem -- zum Pruefen von Hand.
-    onParentScreenChanged: root.ankerMelden()
-
-    // Schluessel aus dem Schirm, NICHT aus einer gebundenen Property: beim
-    // Melden aus onParentScreenChanged heraus steht eine solche Bindung noch
-    // auf dem alten Wert, der Eintrag landete dann unter "anker:".
-    function ankerSchluessel(schirm) {
-        return "anker:" + (schirm?.name || "");
-    }
-
-    function ankerMelden() {
-        if (root.parentScreen?.name)
-            PluginService.setGlobalVar("vpnHub", root.ankerSchluessel(root.parentScreen), root);
-    }
+    // `openPopoutAt` unten bleibt -- zum Pruefen von Hand.
 
     // Das Popout gehoert PluginComponent und heisst dort `pluginPopout`; ids
     // sind dateiweit, von hier aus also unsichtbar. Es ist aber ein Kind-Item

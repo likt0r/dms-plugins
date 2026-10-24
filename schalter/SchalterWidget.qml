@@ -85,18 +85,32 @@ PluginComponent {
     // IPC-Ziel selbst haengt wie ueblich an der zuerst geladenen Instanz.
     property Item vpnIcon: null
 
+    // Fremde Plugin-Instanzen holt DMS 2.0.0 selbst: BarWidgetService fuehrt
+    // eine Registry je Bar-Widget und Schirm (registerWidget in
+    // Modules/SurfaceWidgets/SurfaceWidgetHost.qml). Der dritte Parameter
+    // includeHidden muss true sein -- vpnHub und reminder blenden ihre eigene
+    // Pille aus, und ohne das Flag liefert resolveWidget() nichts.
+    //
+    // Frueher lief das ueber einen selbstgebauten Anker in
+    // PluginService.globalVars. Den gibt es nicht mehr: die Registry kann
+    // dasselbe, kennt die Schirme von sich aus und braucht keine Mitarbeit
+    // der Gegenseite.
+    function fremdeInstanz(widgetId) {
+        return BarWidgetService.resolveWidget(widgetId, {
+            "screenName": root.parentScreen?.name || ""
+        }, true)?.item ?? null;
+    }
+
     // Zustand des VPN-Icons kommt von vpnHub (Schild bei Proton, Schloss bei
     // anderen Tunneln, Pulsieren beim Schalten; Model.barIcon dort). Gleiche
-    // Instanz wie fuer vpnPopout(); globalVars wird bei jedem Setzen neu
-    // zugewiesen, die Bindung zieht also nach, sobald vpnHub geladen ist.
-    readonly property var vpnHub: PluginService.getGlobalVar("vpnHub",
-        "anker:" + (root.parentScreen?.name || ""), null)
+    // Instanz wie fuer vpnPopout(); widgetRegistry wird bei jeder Anmeldung
+    // neu zugewiesen, die Bindung zieht also nach, sobald vpnHub geladen ist.
+    readonly property var vpnHub: root.fremdeInstanz("vpnHub")
     readonly property var vpnZustand: root.vpnHub?.barIcon ?? null
 
     // Timer (Plugin reminder): aktiv, solange einer laeuft; Zustand und
     // Popout kommen von dessen Instanz je Schirm, Weg wie bei vpnHub.
-    readonly property var reminder: PluginService.getGlobalVar("reminder",
-        "anker:" + (root.parentScreen?.name || ""), null)
+    readonly property var reminder: root.fremdeInstanz("reminder")
     readonly property var timerZustand: root.reminder?.leiste ?? null
     property Item timerIcon: null
 
@@ -530,7 +544,7 @@ PluginComponent {
         // Rueckfall: vpnHub noch nicht geladen oder aelter als der Anker.
         // Dann oeffnet es sich an seinem eigenen Platz -- immer noch besser
         // als gar nichts.
-        root.protokoll("vpnHub-Anker fehlt, Rueckfall auf IPC openPopout")
+        root.protokoll("vpnHub-Instanz fehlt, Rueckfall auf IPC openPopout")
         if (!vpnIpc.running)
             vpnIpc.running = true
     }
