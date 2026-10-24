@@ -21,7 +21,9 @@ PluginComponent {
     property var popoutService: null
 
     Ref { service: DMSNetworkService }
-    Ref { service: BluetoothService }
+    // Kein Ref auf BluetoothService: seit DMS 2.0.0 hat der Dienst weder
+    // addRef() noch refCount, der Fallback in Common/Ref.qml lief damit auf
+    // "Cannot assign to non-existent property refCount". Er laeuft ohnehin.
 
     readonly property bool aktiv: !DMSNetworkService.wifiEnabled && !BluetoothService.available
 

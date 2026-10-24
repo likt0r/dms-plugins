@@ -8,7 +8,7 @@ import qs.Common
 import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
-import qs.DankCommon.Common as DC
+import qs.DCommon.Common as DC
 import "Model.js" as Model
 
 // Scribe: markierten Text korrigieren, Ergebnis in die Zwischenablage.
@@ -405,8 +405,11 @@ PluginComponent {
 
     readonly property bool draftIsNew: draftName !== "" && draftProfile === null
 
+    // Direkt auf draftProfile pruefen, nicht ueber draftIsNew: QML garantiert
+    // keine Reihenfolge zwischen den beiden Bindings, und wenn promptsDirty
+    // vor draftIsNew neu ausgewertet wird, lief der Zweig in ein null.title.
     readonly property bool promptsDirty: draftName !== ""
-        && (draftIsNew
+        && (draftProfile === null
             || draftTitle !== draftProfile.title
             || draftIcon !== draftProfile.icon
             || draftSystem !== draftProfile.system)
