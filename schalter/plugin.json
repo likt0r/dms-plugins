@@ -5,8 +5,14 @@
     "version": "1.0.0",
     "author": "Benjamin Werner",
     "type": "widget",
-    "capabilities": ["status-toggles"],
+    "capabilities": [
+        "status-toggles"
+    ],
     "component": "./SchalterWidget.qml",
     "icon": "tune",
-    "permissions": ["settings_read"]
+    "permissions": [
+        "settings_read",
+        "settings_write"
+    ],
+    "settings": "./Settings.qml"
 }

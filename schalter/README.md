@@ -1,13 +1,26 @@
 # Umschalter
 
-Eine Pille in der Bar-Mitte mit fuenf Umschaltern. Ersatz fuer Omarchys
+Eine Pille in der Bar-Mitte mit sechs Umschaltern. Ersatz fuer Omarchys
 `omarchy.indicators`.
 
 | Zustand | Anzeige |
 |---|---|
 | nichts aktiv | nur ein gedimmter Anfasser (`...`) |
 | etwas aktiv | nur die aktiven Icons, in Akzentfarbe |
-| Zeiger darueber | alle fuenf, inaktive bei Deckkraft 0,45 |
+| Zeiger darueber | die aktiven bleiben stehen, die inaktiven klappen daneben auf (Deckkraft 0,45) |
+
+**Beim Hovern rutscht nichts unter dem Mauszeiger weg.** Die aktiven Icons
+(bzw. der Anfasser) bleiben, wo sie sind. Die inaktiven erscheinen als
+Ueberhang rechts oder links daneben, einstellbar unter Einstellungen →
+Plugins → Umschalter (`hoverSeite`: `rechts`, Standard, oder `links`). Bei
+senkrechter Leiste heisst das unten bzw. oben.
+
+Der Ueberhang zaehlt nicht zur Layoutbreite der Pille. Die Bar-Mitte wird
+zentriert, und eine wachsende Pille schoebe sonst auch die festen Icons um die
+halbe Zusatzbreite. Er hat einen eigenen Hintergrund in der Farbe der Bar
+(`Theme.surfaceContainer`), weil er links ueber dem Nachbar-Widget liegt. Die
+Hover-Flaeche reicht, solange er offen ist, ueber ihn hinweg, sonst klappte er
+beim Hinueberfahren zu.
 
 | Umschalter | Icon | liest | Klick |
 |---|---|---|---|
@@ -15,6 +28,7 @@ Eine Pille in der Bar-Mitte mit fuenf Umschaltern. Ersatz fuer Omarchys
 | VPN | Schloss | `NetworkService.vpnConnected` | oeffnet das vpnHub-Popout |
 | Diktat | Mikrofon / Sanduhr | `$XDG_RUNTIME_DIR/voxtype/state` | `voxtype record toggle` |
 | Aufnahme | Bildschirm mit Punkt, rot + Laufzeit | `$XDG_RUNTIME_DIR/bildschirmaufnahme/state` | laeuft: stoppen, sonst HUD-Auswahl |
+| Timer | Stoppuhr, optional + Restzeit | Plugin `reminder` (`leiste` ueber `globalVars`, Schluessel `anker:<Schirm>`) | Popout von `reminder`: laufende Timer, "Timer hinzufuegen" (HUD) |
 | Meldungen | Glocke (+ roter Punkt) / durchgestrichen | `NotificationService.unreadCount`, `SessionData.doNotDisturb` | Benachrichtigungszentrum; Mittelklick: Nicht stoeren |
 
 VPN schaltet bewusst **nicht** selbst: welche der Verbindungen gemeint waere,
@@ -86,10 +100,11 @@ journalctl --user -u dms -g '\[schalter\]'
 
 ```
 dms ipc call schalter status                 # welche aktiv sind
-dms ipc call schalter toggle wach|vpn|diktat|aufnahme|meldungen
-dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aufnahme|meldungen|aus
+dms ipc call schalter toggle wach|vpn|diktat|aufnahme|timer|meldungen
+dms ipc call schalter demo alle|nichts|wach|vpn|diktat|aufnahme|timer|meldungen|aus
 dms ipc call schalter aufnahme               # F10: HUD bzw. stoppen
 dms ipc call schalter osd aufnahme           # nur das HUD zeigen (8 s)
+dms ipc call schalter hoverDemo              # 10 s Hovern vortaeuschen (Aufklappen pruefen)
 ```
 
 `demo` taeuscht Zustaende nur fuer die Anzeige vor und schaltet nichts; nach

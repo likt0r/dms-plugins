@@ -54,7 +54,7 @@ PluginComponent {
     // stoeren". Klick oeffnet das Benachrichtigungszentrum unter der Glocke,
     // Mittelklick schaltet "Nicht stoeren", Rechtsklick (Pille) fuehrt ins
     // Control Center mit der Dauer-Auswahl.
-    readonly property var schalter: ["wach", "vpn", "diktat", "aufnahme", "meldungen"]
+    readonly property var schalter: ["wach", "vpn", "diktat", "aufnahme", "timer", "meldungen"]
 
     property bool gruppeGehovert: false
 
@@ -92,8 +92,20 @@ PluginComponent {
         "anker:" + (root.parentScreen?.name || ""), null)
     readonly property var vpnZustand: root.vpnHub?.barIcon ?? null
 
+    // Timer (Plugin reminder): aktiv, solange einer laeuft; Zustand und
+    // Popout kommen von dessen Instanz je Schirm, Weg wie bei vpnHub.
+    readonly property var reminder: PluginService.getGlobalVar("reminder",
+        "anker:" + (root.parentScreen?.name || ""), null)
+    readonly property var timerZustand: root.reminder?.leiste ?? null
+    property Item timerIcon: null
+
     readonly property int anzahlAktiv: root.schalter.filter(id => root.istAktiv(id)).length
-    readonly property bool anfasserZeigen: root.anzahlAktiv === 0 && !root.gruppeGehovert
+    readonly property int anzahlInaktiv: root.schalter.length - root.anzahlAktiv
+    // Bleibt auch beim Hovern stehen, damit unter dem Zeiger nichts wegrutscht.
+    readonly property bool anfasserZeigen: root.anzahlAktiv === 0
+
+    // Wohin die inaktiven Icons beim Hovern aufklappen (Settings.qml).
+    readonly property string hoverSeite: pluginData?.hoverSeite === "links" ? "links" : "rechts"
 
     // Demo-Zustaende aus dem IPC, damit sich Sitz und Verhalten pruefen
     // lassen, ohne echt zu schalten.
@@ -178,6 +190,8 @@ PluginComponent {
                 || root.diktatZustand === "transcribing"
         case "aufnahme":
             return root.aufnahmeLaeuft
+        case "timer":
+            return root.timerZustand?.active ?? false
         case "meldungen":
             return root.ungelesen || SessionData.doNotDisturb
         }
@@ -204,6 +218,8 @@ PluginComponent {
             return root.diktatZustand === "transcribing" ? "hourglass_top" : "mic"
         case "aufnahme":
             return "screen_record"
+        case "timer":
+            return "timer"
         case "meldungen":
             return SessionData.doNotDisturb ? "notifications_off" : "notifications"
         }
@@ -225,6 +241,9 @@ PluginComponent {
             break
         case "aufnahme":
             root.aufnahmeKlick()
+            break
+        case "timer":
+            root.timerPopout(quelle)
             break
         case "meldungen":
             root.meldungenPopout(quelle)
@@ -473,6 +492,21 @@ PluginComponent {
         root.aufnahmeSkript(["start", modus, bereich])
     }
 
+    // Timer: Popout des reminder-Plugins (laufende Timer + "Timer
+    // hinzufuegen") unter diesem Icon, wie vpnPopout(). Rueckfall per IPC,
+    // dann geht es an der (ausgeblendeten) eigenen Pille auf.
+    function timerPopout(quelle) {
+        const plugin = root.reminder
+        const ziel = quelle || root.timerIcon
+        if (plugin && ziel && typeof plugin.popoutAnkern === "function") {
+            const p = ziel.mapToItem(null, 0, 0)
+            plugin.popoutAnkern(p.x, p.y, ziel.width)
+            return
+        }
+        root.protokoll("reminder-Anker fehlt, Rueckfall auf IPC openPopout")
+        Quickshell.execDetached(["dms", "ipc", "call", "reminder", "openPopout"])
+    }
+
     // Nicht selbst schalten: welche der Verbindungen gemeint waere, ist nicht
     // zu erraten. Der Klick oeffnet das Popout des vpnHub-Plugins, dort stehen
     // alle Verbindungen.
@@ -663,9 +697,18 @@ PluginComponent {
             } else if (root.schalter.indexOf(was) !== -1) {
                 root.demo = [was]
             } else {
-                return "unbekannt: " + was + " (wach|vpn|diktat|aufnahme|meldungen|alle|nichts|aus)"
+                return "unbekannt: " + was + " (wach|vpn|diktat|aufnahme|timer|meldungen|alle|nichts|aus)"
             }
             demoEnde.restart()
+            return "ok"
+        }
+
+        // Taeuscht 10 s lang Hovern vor, um das Aufklappen ohne Maus zu
+        // pruefen (Screenshot). Faehrt die echte Maus darueber und wieder
+        // weg, endet es sofort.
+        function hoverDemo(): string {
+            root.gruppeGehovert = true
+            hoverDemoEnde.restart()
             return "ok"
         }
 
@@ -690,6 +733,12 @@ PluginComponent {
             probeEnde.restart()
             return "ok"
         }
+    }
+
+    Timer {
+        id: hoverDemoEnde
+        interval: 10000
+        onTriggered: root.gruppeGehovert = false
     }
 
     // Ein vergessener Demo-Zustand soll nicht dauerhaft etwas vortaeuschen.
@@ -924,17 +973,183 @@ PluginComponent {
         }
     }
 
+    // --- Pille ------------------------------------------------------------------
+    // Aktive Icons stehen fest; beim Hovern kommen die inaktiven als Ueberhang
+    // rechts oder links daneben (Einstellung hoverSeite). Der Ueberhang zaehlt
+    // nicht zur Layoutbreite: die Bar-Mitte wird zentriert, eine wachsende
+    // Pille schoebe sonst auch die festen Icons -- unter dem Mauszeiger weg.
+    // Links liegt der Ueberhang ueber dem Nachbar-Widget, darum hat er einen
+    // eigenen Hintergrund in der Farbe der Bar.
+
+    // Ein Icon-Platz, in der festen Reihe und im Ueberhang derselbe.
+    // imUeberhang: zeigt nur Inaktive, und nur beim Hovern.
+    component Platz: Item {
+        id: platz
+
+        property string kennung: ""
+        property bool imUeberhang: false
+        property bool mitZusatz: true
+
+        readonly property bool aktiv: root.istAktiv(platz.kennung)
+        // Ein Kind mit visible:true und Breite 0 zoege in Row/Column trotzdem
+        // sein spacing mit; nur visible:false nimmt Platz UND Abstand raus.
+        readonly property bool gezeigt: platz.imUeberhang ? (!platz.aktiv && root.gruppeGehovert) : platz.aktiv
+
+        // Die Aufnahme zeigt neben dem Icon ihre Laufzeit, der Timer auf
+        // Wunsch seine Restzeit (Einstellung im reminder-Plugin); der Platz
+        // waechst dann mit. Nur waagerecht.
+        readonly property string zusatz: !platz.mitZusatz ? ""
+            : platz.kennung === "aufnahme" ? root.aufnahmeDauer
+            : platz.kennung === "timer" ? (root.timerZustand?.text ?? "") : ""
+
+        width: platz.gezeigt
+            ? root.barIconPx + (platz.zusatz !== "" ? dauer.implicitWidth + Theme.spacingXS : 0)
+            : 0
+        height: platz.gezeigt ? root.barIconPx : 0
+        visible: platz.gezeigt
+
+        // Fuer den Weg ueber IPC (ohne Klick) merkt sich die Gruppe das
+        // sichtbare Icon -- je Kennung gibt es jetzt zwei Plaetze, einer davon
+        // ist versteckt.
+        function merken() {
+            if (!platz.gezeigt)
+                return
+            if (platz.kennung === "vpn")
+                root.vpnIcon = platz
+            else if (platz.kennung === "meldungen")
+                root.meldungenIcon = platz
+            else if (platz.kennung === "timer")
+                root.timerIcon = platz
+        }
+        onGezeigtChanged: platz.merken()
+        Component.onCompleted: platz.merken()
+        Component.onDestruction: {
+            if (root.vpnIcon === platz)
+                root.vpnIcon = null
+            if (root.meldungenIcon === platz)
+                root.meldungenIcon = null
+            if (root.timerIcon === platz)
+                root.timerIcon = null
+        }
+
+        // Pulsieren auf dem Platz, nicht auf dem Icon: dessen opacity haengt
+        // schon an aktiv/inaktiv.
+        SequentialAnimation on opacity {
+            running: platz.kennung === "vpn" && (root.vpnZustand?.busy ?? false)
+            loops: Animation.Infinite
+            onRunningChanged: if (!running) platz.opacity = 1
+            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
+            NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
+        }
+
+        // Ungelesenes: roter Punkt oben rechts am Icon wie bei DMS'
+        // NotificationCenterButton (Icon ist links verankert).
+        Rectangle {
+            z: 1
+            width: 6
+            height: 6
+            radius: 3
+            color: Theme.error
+            x: root.barIconPx - width
+            y: 0
+            visible: platz.kennung === "meldungen" && root.ungelesen
+        }
+
+        StyledText {
+            id: dauer
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: platz.zusatz !== ""
+            text: platz.zusatz
+            font.pixelSize: Theme.fontSizeSmall
+            font.features: { "tnum": 1 }
+            color: root.farbeFuer(platz.kennung, platz.aktiv)
+        }
+
+        DankIcon {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            name: root.iconFuer(platz.kennung)
+            filled: platz.kennung === "vpn" && (root.vpnZustand?.filled ?? false)
+            size: root.barIconPx
+            color: root.farbeFuer(platz.kennung, platz.aktiv)
+            // 0.45 fuer aufgedeckt-inaktiv ist aus Omarchys Indicators
+            // uebernommen -- sichtbar genug zum Treffen, leise genug, um nicht
+            // nach Zustand auszusehen.
+            opacity: platz.aktiv ? 1 : 0.45
+            Behavior on opacity {
+                NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            }
+        }
+
+        // hoverEnabled bewusst aus: sonst zoege diese Flaeche den Hover von
+        // der Gruppenflaeche darunter ab und die aufgedeckten Icons flackerten.
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: false
+            cursorShape: Qt.PointingHandCursor
+            acceptedButtons: platz.kennung === "meldungen"
+                ? (Qt.LeftButton | Qt.MiddleButton) : Qt.LeftButton
+            onClicked: (maus) => {
+                if (maus.button === Qt.MiddleButton)
+                    SessionData.setDoNotDisturb(!SessionData.doNotDisturb)
+                else
+                    root.schalten(platz.kennung, platz)
+            }
+        }
+    }
+
+    // Anfasser: ohne ihn gaebe es bei nichts-aktiv keine Flaeche zum Hovern.
+    // Er bleibt auch beim Hovern stehen -- er ist dann das, worauf der Zeiger
+    // gerade zeigt.
+    component Anfasser: Item {
+        width: root.anfasserZeigen ? root.barIconPx : 0
+        height: root.anfasserZeigen ? root.barIconPx : 0
+        visible: root.anfasserZeigen
+
+        DankIcon {
+            anchors.centerIn: parent
+            name: "more_horiz"
+            size: root.barIconPx
+            color: Theme.widgetTextColor
+            opacity: 0.45
+        }
+    }
+
+    // Hintergrund des Ueberhangs, Farbe der Bar (DankBarBody: surfaceContainer).
+    component UeberhangGrund: Rectangle {
+        color: Theme.surfaceContainer
+        radius: Theme.cornerRadius
+    }
+
     horizontalBarPill: Component {
         Item {
-            implicitWidth: reihe.implicitWidth
-            implicitHeight: reihe.implicitHeight
+            id: pille
+
+            readonly property real polster: Theme.spacingXS
+            readonly property bool offen: root.gruppeGehovert && root.anzahlInaktiv > 0
+
+            implicitWidth: fest.implicitWidth
+            implicitHeight: root.barIconPx
+
+            UeberhangGrund {
+                visible: pille.offen
+                x: ueberhang.x - pille.polster
+                y: -pille.polster
+                width: ueberhang.width + pille.polster * 2
+                height: pille.height + pille.polster * 2
+            }
 
             // Zuerst deklariert, liegt also unter den Klickflaechen der Icons.
-            // NoButton: meldet nur Hover und schluckt keine Klicks -- die
-            // gehen an die Icons darueber bzw. an die MouseArea von BasePill
-            // darunter (die liegt auf z: -1).
+            // NoButton: meldet nur Hover und schluckt keine Klicks -- die gehen
+            // an die Icons darueber bzw. an die MouseArea von BasePill darunter
+            // (z: -1). Offen reicht sie ueber den Ueberhang, sonst klappte er
+            // beim Hinueberfahren zu.
             MouseArea {
-                anchors.fill: parent
+                x: pille.offen ? Math.min(0, ueberhang.x - pille.polster) : 0
+                width: (pille.offen ? Math.max(pille.width, ueberhang.x + ueberhang.width + pille.polster) : pille.width) - x
+                y: -pille.polster
+                height: pille.height + pille.polster * 2
                 hoverEnabled: true
                 acceptedButtons: Qt.NoButton
                 onEntered: root.gruppeGehovert = true
@@ -942,144 +1157,66 @@ PluginComponent {
             }
 
             Row {
-                id: reihe
-                anchors.centerIn: parent
+                id: fest
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.spacingXS
 
-                // Anfasser: ohne ihn gaebe es bei nichts-aktiv keine Flaeche
-                // zum Hovern, die Pille schrumpfte auf ihr blosses Polster.
-                Item {
-                    width: root.anfasserZeigen ? root.barIconPx : 0
-                    height: root.barIconPx
-                    visible: root.anfasserZeigen
-
-                    DankIcon {
-                        anchors.centerIn: parent
-                        name: "more_horiz"
-                        size: root.barIconPx
-                        color: Theme.widgetTextColor
-                        opacity: 0.45
-                    }
-                }
+                Anfasser {}
 
                 Repeater {
                     model: root.schalter
-
-                    Item {
-                        id: platz
-
+                    Platz {
                         required property var modelData
-                        readonly property bool aktiv: root.istAktiv(platz.modelData)
+                        kennung: modelData
+                    }
+                }
+            }
 
-                        // Ein Kind mit visible:true und width:0 zoege im Row
-                        // trotzdem sein spacing mit; nur visible:false nimmt
-                        // Platz UND Abstand raus.
-                        readonly property bool gezeigt: platz.aktiv || root.gruppeGehovert
+            Row {
+                id: ueberhang
+                visible: pille.offen
+                anchors.verticalCenter: parent.verticalCenter
+                x: root.hoverSeite === "links"
+                    ? -(ueberhang.implicitWidth + Theme.spacingXS + pille.polster)
+                    : fest.width + Theme.spacingXS + pille.polster
+                spacing: Theme.spacingXS
 
-                        // Die Aufnahme zeigt neben dem Icon ihre Laufzeit,
-                        // der Platz waechst dann mit.
-                        readonly property string zusatz: platz.modelData === "aufnahme"
-                            ? root.aufnahmeDauer : ""
-
-                        width: platz.gezeigt
-                            ? root.barIconPx + (platz.zusatz !== "" ? dauer.implicitWidth + Theme.spacingXS : 0)
-                            : 0
-                        height: root.barIconPx
-                        visible: platz.gezeigt
-
-                        // Pulsieren auf dem Platz, nicht auf dem Icon: dessen
-                        // opacity haengt schon an aktiv/inaktiv.
-                        SequentialAnimation on opacity {
-                            running: platz.modelData === "vpn" && (root.vpnZustand?.busy ?? false)
-                            loops: Animation.Infinite
-                            onRunningChanged: if (!running) platz.opacity = 1
-                            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
-                            NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
-                        }
-
-                        Component.onCompleted: {
-                            if (platz.modelData === "vpn")
-                                root.vpnIcon = platz
-                            if (platz.modelData === "meldungen")
-                                root.meldungenIcon = platz
-                        }
-                        Component.onDestruction: {
-                            if (root.vpnIcon === platz)
-                                root.vpnIcon = null
-                            if (root.meldungenIcon === platz)
-                                root.meldungenIcon = null
-                        }
-
-                        // Ungelesenes: roter Punkt oben rechts wie bei DMS'
-                        // NotificationCenterButton.
-                        Rectangle {
-                            z: 1
-                            width: 6
-                            height: 6
-                            radius: 3
-                            color: Theme.error
-                            x: root.barIconPx - width
-                            y: 0
-                            visible: platz.modelData === "meldungen" && root.ungelesen
-                        }
-
-                        StyledText {
-                            id: dauer
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: platz.zusatz !== ""
-                            text: platz.zusatz
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.features: { "tnum": 1 }
-                            color: Theme.error
-                        }
-
-                        DankIcon {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: root.iconFuer(platz.modelData)
-                            filled: platz.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
-                            size: root.barIconPx
-                            color: root.farbeFuer(platz.modelData, platz.aktiv)
-                            // 0.45 fuer aufgedeckt-inaktiv ist aus Omarchys
-                            // Indicators uebernommen -- sichtbar genug zum
-                            // Treffen, leise genug, um nicht nach Zustand
-                            // auszusehen.
-                            opacity: platz.aktiv ? 1 : 0.45
-                            Behavior on opacity {
-                                NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
-                            }
-                        }
-
-                        // hoverEnabled bewusst aus: sonst zoege diese Flaeche
-                        // den Hover von der Gruppenflaeche darunter ab und die
-                        // aufgedeckten Icons flackerten beim Darueberfahren.
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: false
-                            cursorShape: Qt.PointingHandCursor
-                            acceptedButtons: platz.modelData === "meldungen"
-                                ? (Qt.LeftButton | Qt.MiddleButton) : Qt.LeftButton
-                            onClicked: (maus) => {
-                                if (maus.button === Qt.MiddleButton)
-                                    SessionData.setDoNotDisturb(!SessionData.doNotDisturb)
-                                else
-                                    root.schalten(platz.modelData, platz)
-                            }
-                        }
+                Repeater {
+                    model: root.schalter
+                    Platz {
+                        required property var modelData
+                        kennung: modelData
+                        imUeberhang: true
                     }
                 }
             }
         }
     }
 
+    // Senkrecht: "rechts" heisst unten, "links" oben.
     verticalBarPill: Component {
         Item {
-            implicitWidth: spalte.implicitWidth
-            implicitHeight: spalte.implicitHeight
+            id: pilleV
+
+            readonly property real polster: Theme.spacingXS
+            readonly property bool offen: root.gruppeGehovert && root.anzahlInaktiv > 0
+
+            implicitWidth: root.barIconPx
+            implicitHeight: festV.implicitHeight
+
+            UeberhangGrund {
+                visible: pilleV.offen
+                x: -pilleV.polster
+                y: ueberhangV.y - pilleV.polster
+                width: pilleV.width + pilleV.polster * 2
+                height: ueberhangV.height + pilleV.polster * 2
+            }
 
             MouseArea {
-                anchors.fill: parent
+                x: -pilleV.polster
+                width: pilleV.width + pilleV.polster * 2
+                y: pilleV.offen ? Math.min(0, ueberhangV.y - pilleV.polster) : 0
+                height: (pilleV.offen ? Math.max(pilleV.height, ueberhangV.y + ueberhangV.height + pilleV.polster) : pilleV.height) - y
                 hoverEnabled: true
                 acceptedButtons: Qt.NoButton
                 onEntered: root.gruppeGehovert = true
@@ -1087,93 +1224,38 @@ PluginComponent {
             }
 
             Column {
-                id: spalte
-                anchors.centerIn: parent
+                id: festV
+                anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingXS
 
-                // Anfasser: ohne ihn gaebe es bei nichts-aktiv keine Flaeche
-                // zum Hovern, die Pille schrumpfte auf ihr blosses Polster.
-                Item {
-                    width: root.anfasserZeigen ? root.barIconPx : 0
-                    height: root.barIconPx
-                    visible: root.anfasserZeigen
-
-                    DankIcon {
-                        anchors.centerIn: parent
-                        name: "more_horiz"
-                        size: root.barIconPx
-                        color: Theme.widgetTextColor
-                        opacity: 0.45
-                    }
-                }
-
-                Item {
-                    width: root.barIconPx
-                    height: root.anfasserZeigen ? root.barIconPx : 0
-                    visible: root.anfasserZeigen
-
-                    DankIcon {
-                        anchors.centerIn: parent
-                        name: "more_horiz"
-                        size: root.barIconPx
-                        color: Theme.widgetTextColor
-                        opacity: 0.45
-                    }
-                }
+                Anfasser {}
 
                 Repeater {
                     model: root.schalter
-
-                    Item {
-                        id: platzV
-
+                    Platz {
                         required property var modelData
-                        readonly property bool aktiv: root.istAktiv(platzV.modelData)
+                        kennung: modelData
+                        mitZusatz: false
+                    }
+                }
+            }
 
-                        readonly property bool gezeigt: platzV.aktiv || root.gruppeGehovert
+            Column {
+                id: ueberhangV
+                visible: pilleV.offen
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: root.hoverSeite === "links"
+                    ? -(ueberhangV.implicitHeight + Theme.spacingXS + pilleV.polster)
+                    : festV.height + Theme.spacingXS + pilleV.polster
+                spacing: Theme.spacingXS
 
-                        width: root.barIconPx
-                        height: platzV.gezeigt ? root.barIconPx : 0
-                        visible: platzV.gezeigt
-
-                        SequentialAnimation on opacity {
-                            running: platzV.modelData === "vpn" && (root.vpnZustand?.busy ?? false)
-                            loops: Animation.Infinite
-                            onRunningChanged: if (!running) platzV.opacity = 1
-                            NumberAnimation { to: 0.4; duration: 600; easing.type: Easing.InOutQuad }
-                            NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutQuad }
-                        }
-
-                        Component.onCompleted: if (platzV.modelData === "vpn")
-                            root.vpnIcon = platzV
-                        Component.onDestruction: if (root.vpnIcon === platzV)
-                            root.vpnIcon = null
-
-                        DankIcon {
-                            anchors.centerIn: parent
-                            name: root.iconFuer(platzV.modelData)
-                            filled: platzV.modelData === "vpn" && (root.vpnZustand?.filled ?? false)
-                            size: root.barIconPx
-                            color: root.farbeFuer(platzV.modelData, platzV.aktiv)
-                            opacity: platzV.aktiv ? 1 : 0.45
-                            Behavior on opacity {
-                                NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: false
-                            cursorShape: Qt.PointingHandCursor
-                            acceptedButtons: platzV.modelData === "meldungen"
-                                ? (Qt.LeftButton | Qt.MiddleButton) : Qt.LeftButton
-                            onClicked: (maus) => {
-                                if (maus.button === Qt.MiddleButton)
-                                    SessionData.setDoNotDisturb(!SessionData.doNotDisturb)
-                                else
-                                    root.schalten(platzV.modelData, platzV)
-                            }
-                        }
+                Repeater {
+                    model: root.schalter
+                    Platz {
+                        required property var modelData
+                        kennung: modelData
+                        imUeberhang: true
+                        mitZusatz: false
                     }
                 }
             }

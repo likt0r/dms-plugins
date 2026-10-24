@@ -1,115 +1,133 @@
-# Erinnerung
+# Timer
 
-Erinnerungen mit Countdown für DankMaterialShell: Zeit und Grund eingeben, und
-wenn die Zeit um ist, kommt eine Benachrichtigung, die stehen bleibt, dazu ein
-Ton. Nachbau der Reminders aus Omarchy (`bin/omarchy-reminder`,
-`shell/plugins/reminders/ReminderFlow.qml` und der Bar-Indikator
-`Reminder.qml` aus [basecamp/omarchy](https://github.com/basecamp/omarchy), MIT).
+Timer mit optionaler Notiz für DankMaterialShell: Zeit eingeben, optional
+eine Notiz, und wenn die Zeit um ist, kommt eine Benachrichtigung, die stehen
+bleibt, dazu ein Ton. Nachbau der Reminders aus Omarchy
+(`bin/omarchy-reminder`, `shell/plugins/reminders/ReminderFlow.qml` und der
+Bar-Indikator `Reminder.qml` aus
+[basecamp/omarchy](https://github.com/basecamp/omarchy), MIT).
 
-## Installation
+## Wo es sitzt
 
-`bin/apply` (dotfiles) verlinkt das Verzeichnis nach
-`~/.config/DankMaterialShell/plugins/reminder`. Danach:
+- **Toggle-Leiste** (Plugin [`schalter`](../schalter/)): Die Stoppuhr steht
+  dort, solange ein Timer läuft, sonst erscheint sie wie die anderen
+  Schalter beim Hovern. Auf Wunsch steht die Restzeit des nächsten Timers
+  daneben (Einstellung, Standard aus).
+- **Klick auf die Stoppuhr:** Popout mit den laufenden Timern (Notiz oder
+  „Timer“, Uhrzeit, Restzeit, löschen; im Kopf „Alle löschen“) und dem Knopf
+  **„Timer hinzufügen“**.
+- **`Mod+Alt+T`** (niri-Keybind im dotfiles-Repo) oder der Knopf öffnen das
+  **HUD** unten am Bildschirm, auf dem Schirm mit Fokus.
 
-```sh
-dms ipc call plugins scan
-dms ipc call plugins enable reminder
-```
+Die eigene Pille des Plugins ist in der Bar ausgeschaltet
+(`{"id": "reminder", "enabled": false}` in `centerWidgets`). Das Plugin läuft
+trotzdem, denn Popout, HUD und IPC wohnen hier. Gefunden wird es wie
+`vpnHub`: Die Instanz liegt je Schirm in `PluginService.globalVars` unter
+`reminder` / `anker:<Schirm>`. `schalter` liest dort den Zustand (`leiste`) und
+ruft `popoutAnkern()`, damit das Popout unter der Stoppuhr aufgeht.
 
-und in der Bar-Mitte platzieren (`centerWidgets`, neben `calendar`).
+## Das HUD
 
-## Bedienung
+Zwei Schritte nacheinander, wie Omarchys Overlay:
 
-| Aktion | Wirkung |
-|---|---|
-| Klick auf den Wecker | Popout: neue Erinnerung, laufende Erinnerungen |
-| `Mod+Alt+R` | dasselbe Popout per Tastatur (niri-Keybind im dotfiles-Repo) |
-| Enter im Feld „Wann?“ | weiter zu „Woran erinnern?“ |
-| Enter im Feld „Woran erinnern?“ | Erinnerung stellen |
-| Schnellwahl-Knopf | trägt die Minuten ins Zeitfeld ein |
-| ✕ an einer Erinnerung / Kopf-Knopf | eine bzw. alle löschen |
+1. **Zeit.** Ein Textfeld, darunter die Vorgaben als Kacheln.
+   - **←/→** (auch ↑/↓, Tab) wählen eine Vorgabe und schreiben sie ins Feld.
+     Tippen überschreibt.
+   - In der Kopfzeile steht sofort „Timer 25 min · um 14:45“ oder was am
+     Format nicht stimmt.
+   - **Enter** übernimmt, ein Klick auf eine Kachel ebenso.
+2. **Notiz (optional).** Das Feld erscheint erst jetzt. **Enter** stellt den
+   Timer, auch mit leerem Feld, dann ist es ein Timer ohne Namen.
+   **Backspace** im leeren Feld geht zurück zur Zeit.
+
+**Esc** bricht in jedem Schritt ab.
 
 Die Zeit versteht:
 
 | Eingabe | bedeutet |
 |---|---|
-| `15` | 15 Minuten (wie bei Omarchy) |
-| `90m`, `90min` | 90 Minuten |
-| `45s` | 45 Sekunden |
-| `2h`, `1h30`, `1h 30m` | Stunden und Minuten |
-| `14:30`, `14.30` | um 14:30, heute oder, wenn schon vorbei, morgen |
-
-Unter dem Feld steht sofort, wann erinnert wird („um 14:45 · in 15 min“), oder
-was am Format nicht stimmt. Ohne Grund lautet die Meldung „Deine 15 min sind um“.
-
-In der Bar steht, solange eine Erinnerung läuft, der Wecker in der
-Akzentfarbe und daneben die Restzeit der nächsten (`12:34`, ab einer Stunde
-`1:05:00`).
-
-Von außen:
-
-```sh
-dms ipc call reminder openPopout
-dms ipc call reminder add 15 "Tee ist fertig"
-dms ipc call reminder list
-dms ipc call reminder clear
-```
-
-Oder ohne Shell direkt mit dem Skript:
-
-```sh
-bin/dms-reminder 1h30 "Wäsche aufhängen"
-bin/dms-reminder show
-bin/dms-reminder clear
-```
+| `25` | 25 in der eingestellten Einheit (Standard Minuten, sonst Stunden oder Sekunden) |
+| `3h30m4s`, `3h 30m 4s` | 3 h 30 min 4 s, Einheiten absteigend, jede einmal |
+| `90m`, `90min`, `45s`, `2h` | einzeln |
+| `1h30`, `5m30` | eine Zahl am Ende zählt in der nächstkleineren Einheit |
+| `14:30`, `14.30` | bis 14:30, heute oder, wenn schon vorbei, morgen |
 
 ## Einstellungen
 
-Einstellungen → Plugins → Erinnerung:
+Einstellungen → Plugins → Timer:
 
-- **Countdown in der Bar** (`showCountdown`, an)
-- **Ton bei Fälligkeit** (`playSound`, an): gilt für neu gestellte Erinnerungen
-- **Schnellwahl** (`quickTimes`, „5, 10, 15, 30, 60“)
+| Einstellung | Schlüssel | Standard |
+|---|---|---|
+| Zahl ohne Einheit | `bareUnit` (`m`/`h`/`s`) | Minuten |
+| Vorgaben | `presets` | `5m, 10m, 15m, 25m, 45m, 1h` (durch Komma getrennt) |
+| Restzeit in der Toggle-Leiste | `showCountdown` | aus (nur Icon) |
+| Ton beim Ablauf | `playSound` | an, gilt für neu gestellte Timer |
+
+## Von außen
+
+```sh
+dms ipc call reminder openHud
+dms ipc call reminder openPopout
+dms ipc call reminder add 25 "Tee"      # ohne HUD; "" = ohne Notiz
+dms ipc call reminder list
+dms ipc call reminder clear
+
+bin/dms-reminder 3h30m4s "Wäsche"       # ohne Shell
+bin/dms-reminder --unit s 90
+bin/dms-reminder show
+```
 
 ## Wie es funktioniert
 
-Wie bei Omarchy ist jede Erinnerung ein transienter systemd-User-Timer
-(`systemd-run --user --on-active=…`, Unit `dms-reminder-<zeit>-<pid>`). Die
-Nachricht liegt in `$XDG_RUNTIME_DIR/dms-reminders/<unit>.message`, die
-Fälligkeit liest `dms-reminder show --json` aus `systemctl --user list-timers`.
-Erinnerungen überleben deshalb einen Neustart der Shell, nicht aber einen
-Neustart des Rechners.
+Wie bei Omarchy ist jeder Timer ein transienter systemd-User-Timer
+(`systemd-run --user --on-active=…`, Unit `dms-reminder-<zeit>-<pid>`):
+- Die Notiz liegt in `$XDG_RUNTIME_DIR/dms-reminders/<unit>.message`.
+- Die Fälligkeit liest `dms-reminder show --json` aus
+  `systemctl --user list-timers`.
+- Timer überleben einen Neustart der Shell, nicht aber einen des Rechners.
 
-Beim Auslösen läuft im Timer:
-`notify-send -u critical` (bleibt stehen, kommt auch bei „Nicht stören“), der
-Systemton `alarm-clock-elapsed` (`canberra-gtk-play`, sonst `pw-play`), dann
-wird die Nachrichtendatei gelöscht und das Widget per
-`dms ipc call reminder refresh` angestoßen.
+Beim Ablauf läuft im Timer:
+- `notify-send -u critical --transient`: Das Popup bleibt stehen, bis man es
+  wegklickt, und kommt auch bei „Nicht stören“. Danach ist es ganz weg, denn
+  transiente Meldungen legt DMS weder ins Benachrichtigungszentrum noch in den
+  Verlauf, und die Glocke leuchtet nicht nach. `suppress-sound` verhindert
+  einen zweiten Ton von DMS. Der Titel ist die Notiz, ohne Notiz „Timer
+  abgelaufen“, im Text steht die Dauer.
+- Der Systemton `alarm-clock-elapsed` (`canberra-gtk-play`, sonst `pw-play`).
+- Danach wird die Notizdatei gelöscht und das Widget per
+  `dms ipc call reminder refresh` angestoßen.
 
-Das Widget zählt im Sekundentakt herunter, solange etwas läuft, und liest die
-Liste beim Start, nach jeder Aktion, beim Öffnen des Popouts, auf `refresh` und
-zur Sicherheit jede Minute neu.
+Das Widget zählt im Sekundentakt, solange etwas läuft oder das HUD offen ist.
+Die Liste liest es neu beim Start, nach jeder Aktion, beim Öffnen des Popouts,
+auf `refresh` und zur Sicherheit jede Minute.
 
-Bestätigung und Fehler kommen wie in den anderen Plugins als
-Desktop-Benachrichtigung (Absender „Erinnerung“), Fehler mit Detail zusätzlich
-im Log (`[reminder] …`), nicht als DMS-Toast.
+Beim Stellen gibt es keine Benachrichtigung, das Timer-Icon in der
+Toggle-Leiste zeigt ja, dass einer läuft. Nur wenn das Stellen scheitert,
+kommt eine Benachrichtigung. Die Details stehen im Journal
+(`journalctl --user -u dms -g '\[reminder\]'`).
+
+Das HUD ist gebaut wie das Aufnahme-HUD in `schalter`: ein `DankOSD` je
+Bildschirm. Den Tastaturfokus hat es nur, solange es offen ist, und nur auf
+dem Schirm mit Fokus (`NiriService.currentOutput`). Die Steuertasten fängt ein
+kleines Item ab, an das `DankTextField` über `keyForwardTargets` zuerst
+weiterreicht. Alles andere geht als Text ins Feld.
 
 Abweichungen von Omarchy:
-- Statt eines Vollbild-Overlays mit zwei Schritten (erst Minuten, dann
-  Nachricht) hat das Popout beide Felder untereinander; Enter führt durch wie
-  dort.
-- Flexibles Zeitformat statt nur Minuten.
-- Countdown in der Bar, einzelne Erinnerungen löschbar, Ton.
-- Keybind `Mod+Alt+R` statt `Super+Ctrl+R` (unter niri belegt durch
-  `reset-window-height`).
+- Ein HUD unten statt eines Vollbild-Overlays.
+- Ein flexibles Zeitformat mit einstellbarer Einheit statt nur Minuten.
+- Vorgaben mit Pfeiltasten.
+- Ein Icon in der Toggle-Leiste und die Liste mit einzeln löschbaren Timern.
+- Ton beim Ablauf.
+- Keine Bestätigung beim Stellen.
+- Keybind `Mod+Alt+T` statt `Super+Ctrl+R`, das unter niri belegt ist.
 
 ## Aufbau
 
 ```
-plugin.json          Manifest
-ReminderWidget.qml   Bar-Pill mit Countdown, Popout, IPC
-Settings.qml         Countdown, Ton, Schnellwahl
-Model.js             alles Reine: Zeitformat, Countdown, Liste, Skript-Argumente
+plugin.json          Manifest (Id reminder)
+ReminderWidget.qml   Anker für schalter, Popout, HUD, IPC (+ eigene Pille, normal aus)
+Settings.qml         Einheit, Vorgaben, Restzeit, Ton
+Model.js             alles Reine: Zeitformat, Vorgaben, Countdown, Liste, Leisten-Zustand
 bin/dms-reminder     Timer stellen/listen/löschen (Bash, Port von omarchy-reminder)
 tests/               node --test (prüft auch, dass das Skript dieselben Formate versteht)
 ```

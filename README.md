@@ -26,8 +26,8 @@ platzieren.
 
 | Plugin | Typ | Zweck |
 |---|---|---|
-| [`reminder/`](reminder/) | widget | **Erinnerung** in der Bar-Mitte: Zeit (`15`, `1h30`, `45s`, `14:30`) und Grund eingeben, Countdown neben dem Wecker; faellig kommt eine Benachrichtigung, die stehen bleibt, mit Ton. Timer laufen als systemd-User-Timer. Nachbau von Omarchys Reminders. |
-| [`schalter/`](schalter/) | widget | **Umschalter-Gruppe** in der Bar-Mitte: Wachhalten, VPN, Diktat, Bildschirmaufnahme (Auswahl als HUD auf F10) und Benachrichtigungen. Aktive Icons stehen immer da, die uebrigen erscheinen beim Hovern. Ersatz fuer Omarchys `omarchy.indicators`. |
+| [`reminder/`](reminder/) | widget | **Timer** mit optionaler Notiz: Stoppuhr in der schalter-Gruppe, solange einer laeuft; Klick zeigt die laufenden Timer, gestellt wird per HUD (Mod+Alt+T): Zeit (`25`, `3h30m4s`, `14:30`, Vorgaben per Pfeiltasten), dann Notiz. systemd-User-Timer, faellig eine stehenbleibende Meldung mit Ton. Nachbau von Omarchys Reminders. |
+| [`schalter/`](schalter/) | widget | **Umschalter-Gruppe** in der Bar-Mitte: Wachhalten, VPN, Diktat, Bildschirmaufnahme (Auswahl als HUD auf F10), Timer und Benachrichtigungen. Aktive Icons stehen immer da, die uebrigen erscheinen beim Hovern. Ersatz fuer Omarchys `omarchy.indicators`. |
 | [`aufnahmeKachel/`](aufnahmeKachel/) | widget (Control Center) | Kachel fuer die Bildschirmaufnahme der schalter-Gruppe: Laufzeit, Klick = Auswahl/Stopp. |
 | [`diktatKachel/`](diktatKachel/) | widget (Control Center) | Kachel fuers Diktat (voxtype) der schalter-Gruppe. |
 | [`bildschirme/`](bildschirme/) | widget | Bildschirmmodus umschalten wie GNOMEs Super+P: alle, nur extern, nur intern, spiegeln (ueber wl-mirror) -- dazu die DMS-Anzeigeprofile. Gedacht fuer die Anzeige-Sondertaste F7. |

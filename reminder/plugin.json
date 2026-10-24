@@ -1,15 +1,26 @@
 {
     "id": "reminder",
-    "name": "Erinnerung",
-    "description": "Erinnerungen mit Countdown in der Bar: Zeit (15, 1h30, 14:30) und Grund eingeben, systemd stellt den Timer, faellig kommt eine Benachrichtigung mit Ton. Nachbau von Omarchys Reminders",
-    "version": "1.0.0",
+    "name": "Timer",
+    "description": "Timer mit optionaler Notiz: Icon in der Toggle-Leiste (schalter), Popout mit laufenden Timern, Stellen per HUD (Zeit wie 25 oder 3h30m4s, dann Notiz). systemd-User-Timer, faellig eine stehenbleibende Meldung mit Ton. Nachbau von Omarchys Reminders",
+    "version": "2.0.0",
     "author": "Benjamin Werner",
     "type": "widget",
-    "capabilities": ["reminder", "timer"],
+    "capabilities": [
+        "reminder",
+        "timer"
+    ],
     "component": "./ReminderWidget.qml",
     "settings": "./Settings.qml",
     "icon": "alarm",
     "requires_dms": ">=1.6.0",
-    "dependencies": ["systemd-run", "notify-send", "jq"],
-    "permissions": ["settings_read", "settings_write", "process"]
+    "dependencies": [
+        "systemd-run",
+        "notify-send",
+        "jq"
+    ],
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ]
 }
