@@ -329,9 +329,10 @@ PluginComponent {
     property bool popoutOnScreen: false
 
     function updatePopoutOnScreen() {
-        var name = root.slideScreen ? root.slideScreen.name : ""
-        var popout = name ? PopoutManager.currentPopoutsByScreen[name] : null
-        root.popoutOnScreen = !!popout && PopoutManager._isPopoutPresented(popout)
+        // DMS 2.0.0: _isPopoutPresented() gibt es nicht mehr. getActivePopout()
+        // liefert das Popout des Schirms, shouldBeVisible sagt, ob es steht.
+        var popout = PopoutManager.getActivePopout(root.slideScreen)
+        root.popoutOnScreen = !!popout && popout.shouldBeVisible === true
     }
 
     Connections {
